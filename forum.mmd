@@ -5,23 +5,23 @@ erDiagram
     USERS ||--o{ FOLLOWS : followed
 
     USERS {
-        int id PK
-        varchar username
-        varchar role
-        timestamp created_at
+        int id PK "รหัสผู้ใช้"
+        varchar username "ชื่อผู้ใช้"
+        varchar role "บทบาทผู้ใช้"
+        timestamp created_at "วันที่สร้างบัญชี"
     }
 
     POSTS {
-        int id PK
-        varchar title
-        text body
-        int user_id FK
-        varchar status
-        timestamp created_at
+        int id PK "รหัสโพสต์"
+        varchar title "หัวข้อโพสต์"
+        text body "เนื้อหาโพสต์"
+        int user_id FK "ผู้สร้างโพสต์"
+        varchar status "สถานะโพสต์"
+        timestamp created_at "วันที่สร้างโพสต์"
     }
 
     FOLLOWS {
-        int following_user_id FK
-        int followed_user_id FK
-        timestamp created_at
+        int following_user_id FK "ผู้ใช้ที่ติดตาม"
+        int followed_user_id FK "ผู้ใช้ที่ถูกติดตาม"
+        timestamp created_at "วันที่เริ่มติดตาม"
     }
