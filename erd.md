@@ -7,7 +7,6 @@ erDiagram
     USERS ||--o{ POSTS : creates
     USERS ||--o{ FOLLOWS : follows_from
     USERS ||--o{ FOLLOWS : followed_by
-    USERS ||--o{ FOLLOWS : followed_to
 
     USERS {
         int id PK "รหัสผู้ใช้"
@@ -29,11 +28,6 @@ erDiagram
         int following_user_id FK "ผู้ใช้ที่ติดตาม"
         int followed_user_id FK "ผู้ใช้ที่ถูกติดตาม"
         datetime created_at "วันที่เริ่มติดตาม"
-    }
-    TO {
-        int to_user_id FK 
-        int to_user_id FK
-        datetime created_at 
     }
 ```
 
