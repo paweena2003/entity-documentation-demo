@@ -1,13 +1,38 @@
-# Database Documentation — Forum Demo
 
-คู่มือนี้อธิบายโครงสร้างข้อมูลตัวอย่างของระบบ Forum โดยมีผู้ใช้ โพสต์ และการติดตามผู้ใช้
+# Entity Documentation
 
-## Entity ที่มีในตัวอย่าง
+เอกสารประกอบการออกแบบและอธิบายโครงสร้างฐานข้อมูล
+(Entity Documentation) สำหรับระบบตัวอย่าง
 
-- **users** — ข้อมูลบัญชีผู้ใช้
-- **posts** — โพสต์ที่ผู้ใช้สร้าง
-- **follows** — ความสัมพันธ์การติดตามระหว่างผู้ใช้
+## About this project
 
-ไปที่ [ER Diagram](erd.md) เพื่อดูภาพรวม หรือเปิดหน้ารายละเอียดของ [users](entities/users.md), [posts](entities/posts.md), และ [follows](entities/follows.md)
+โปรเจกต์นี้จัดทำขึ้นเพื่อรวบรวมรายละเอียดของ Entity
+ความสัมพันธ์ระหว่างตาราง และคำอธิบายของแต่ละ Field
+ให้อยู่ในรูปแบบเอกสารที่อ่านง่ายและดูแลต่อได้
 
-> ตัวอย่างนี้ใช้ข้อมูลสมมติเท่านั้น ไม่ได้เชื่อมต่อฐานข้อมูลจริง
+## Objectives
+
+- อธิบายโครงสร้างและหน้าที่ของแต่ละ Entity
+- แสดงความสัมพันธ์ระหว่าง Entity ด้วย ER Diagram
+- จัดทำ Data Dictionary สำหรับอ้างอิงข้อมูล
+- ใช้ Markdown และ Mermaid เพื่อดูแลเอกสารผ่านโค้ด
+- ใช้ GitHub จัดเก็บและติดตามการเปลี่ยนแปลง
+- ใช้ GitBook แสดงผลเอกสารเป็นเว็บไซต์
+
+## Documentation Structure
+
+- Database Documentation
+- Entities
+- Technical Documentation
+
+## Technologies
+
+- Markdown
+- Mermaid
+- GitHub
+- GitBook
+- Visual Studio Code
+
+## Project Status
+
+Documentation in progress.
