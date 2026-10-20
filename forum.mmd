@@ -1,26 +1,27 @@
+
 erDiagram
     USERS ||--o{ POSTS : creates
-    USERS ||--o{ FOLLOWS : follows_from
-    USERS ||--o{ FOLLOWS : followed_by
+    USERS ||--o{ FOLLOWS : following
+    USERS ||--o{ FOLLOWS : followed
 
     USERS {
-        int id PK "รหัสผู้ใช้"
-        string username "ชื่อผู้ใช้"
-        string role "บทบาทผู้ใช้"
-        datetime created_at "วันที่สร้างบัญชี"
+        int id PK
+        varchar username
+        varchar role
+        timestamp created_at
     }
 
     POSTS {
-        int id PK "รหัสโพสต์"
-        string title "หัวข้อโพสต์"
-        text body "เนื้อหาโพสต์"
-        int user_id FK "ผู้สร้างโพสต์"
-        string status "สถานะโพสต์"
-        datetime created_at "วันที่สร้างโพสต์"
+        int id PK
+        varchar title
+        text body
+        int user_id FK
+        varchar status
+        timestamp created_at
     }
 
     FOLLOWS {
-        int following_user_id FK "ผู้ใช้ที่ติดตาม"
-        int followed_user_id FK "ผู้ใช้ที่ถูกติดตาม"
-        datetime created_at "วันที่เริ่มติดตาม"
+        int following_user_id FK
+        int followed_user_id FK
+        timestamp created_at
     }
