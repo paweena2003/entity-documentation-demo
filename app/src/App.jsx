@@ -413,7 +413,14 @@ function App() {
               ) : (
                 <div className="entity-list">
                   {projects.map((project) => (
-                    <div className="entity-row" key={project.id}>
+                    <div
+                      className="entity-row project-clickable"
+                      key={project.id}
+                      onClick={() => {
+                        setSelectedProject(project)
+                        setActivePage('Project Detail')
+                      }}
+                    >
                       <div className="entity-icon blue">
                         <FolderKanban size={19} />
                       </div>
@@ -428,6 +435,69 @@ function App() {
                   ))}
                 </div>
               )}
+            </section>
+          )}
+          {activePage === 'Project Detail' && selectedProject && (
+            <section className="panel">
+              <button
+                className="secondary-button"
+                onClick={() => setActivePage('Projects')}
+              >
+                ← กลับไป Projects
+              </button>
+
+              <div className="panel-heading" style={{ marginTop: 24 }}>
+                <div>
+                  <h2>
+                    <FolderKanban size={19} />
+                    {selectedProject.name}
+                  </h2>
+                  <p>
+                    {selectedProject.description || 'ไม่มีรายละเอียดโปรเจกต์'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="project-feature-grid">
+                {[
+                  {
+                    label: 'Entities',
+                    description: 'จัดการตารางและรายละเอียดข้อมูล',
+                    icon: Database,
+                  },
+                  {
+                    label: 'Relationships',
+                    description: 'จัดการความสัมพันธ์ระหว่างตาราง',
+                    icon: Link2,
+                  },
+                  {
+                    label: 'ER Diagram',
+                    description: 'ดูแผนภาพโครงสร้างฐานข้อมูล',
+                    icon: GitBranch,
+                  },
+                  {
+                    label: 'Data Dictionary',
+                    description: 'ดูคำอธิบายตารางและคอลัมน์',
+                    icon: BookOpen,
+                  },
+                ].map((item) => {
+                  const Icon = item.icon
+
+                  return (
+                    <button
+                      type="button"
+                      className="project-feature-card"
+                      key={item.label}
+                      onClick={() => setActivePage(item.label)}
+                    >
+                      <Icon size={22} />
+                      <strong>{item.label}</strong>
+                      <span>{item.description}</span>
+                      <span>เปิดดู →</span>
+                    </button>
+                  )
+                })}
+              </div>
             </section>
           )}
           {activePage === 'Overview' && (
