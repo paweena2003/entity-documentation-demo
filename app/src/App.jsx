@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 import {
   Activity,
   ArrowDownRight,
+  FolderKanban,
   ArrowRight,
   BookOpen,
   CheckCircle2,
@@ -74,6 +75,10 @@ function App() {
   const [session, setSession] = useState(undefined)
   const [search, setSearch] = useState('')
   const [selectedEntity, setSelectedEntity] = useState('USERS')
+  const [projects, setProjects] = useState([])
+  const [showProjectModal, setShowProjectModal] = useState(false)
+  const [projectName, setProjectName] = useState('')
+  const [projectDescription, setProjectDescription] = useState('')
 
   const allFields = useMemo(
     () => entities.flatMap((entity) =>
@@ -97,6 +102,7 @@ function App() {
   const activeEntity = entities.find((entity) => entity.name === selectedEntity) ?? entities[0]
 
   const navItems = [
+    { label: 'Projects', icon: FolderKanban },
     { label: 'Overview', icon: LayoutDashboard },
     { label: 'Entities', icon: Database },
     { label: 'Relationships', icon: Link2 },
@@ -117,6 +123,25 @@ function App() {
       console.error(error.message)
       alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message)
     }
+  }
+  const handleCreateProject = (event) => {
+    event.preventDefault()
+
+    const name = projectName.trim()
+    if (!name) return
+
+    setProjects((current) => [
+      ...current,
+      {
+        id: Date.now(),
+        name,
+        description: projectDescription.trim(),
+      },
+    ])
+
+    setProjectName('')
+    setProjectDescription('')
+    setShowProjectModal(false)
   }
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -329,9 +354,21 @@ function App() {
                 Explore your database structure, entities, and relationships in one place.
               </p>
             </div>
-            <button className="primary-button" onClick={() => setActivePage('Entities')}>
-              <Plus size={17} /> Explore entities <ArrowRight size={16} />
-            </button>
+            <div className="welcome-actions">
+              <button
+                className="secondary-button"
+                onClick={() => setShowProjectModal(true)}
+              >
+                <Plus size={17} /> New Project
+              </button>
+
+              <button
+                className="primary-button"
+                onClick={() => setActivePage('Entities')}
+              >
+                <Plus size={17} /> Explore entities <ArrowRight size={16} />
+              </button>
+            </div>
           </div>
 
           <div className="notice-banner">
@@ -583,6 +620,60 @@ function App() {
           <span><span className="footer-status-dot" /> Local demo workspace</span>
         </footer>
       </main>
+      {showProjectModal && (
+  <div className="project-modal-overlay">
+    <form className="project-modal" onSubmit={handleCreateProject}>
+      <div className="project-modal-header">
+        <div>
+          <h2>สร้างโปรเจกต์ใหม่</h2>
+          <p>เพิ่มพื้นที่สำหรับจัดเก็บเอกสารฐานข้อมูล</p>
+        </div>
+
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => setShowProjectModal(false)}
+          aria-label="ปิด"
+        >
+          ×
+        </button>
+      </div>
+
+      <label htmlFor="project-name">ชื่อโปรเจกต์ *</label>
+      <input
+        id="project-name"
+        value={projectName}
+        onChange={(event) => setProjectName(event.target.value)}
+        placeholder="เช่น Mappoint Database"
+        required
+        autoFocus
+      />
+
+      <label htmlFor="project-description">รายละเอียด</label>
+      <textarea
+        id="project-description"
+        value={projectDescription}
+        onChange={(event) => setProjectDescription(event.target.value)}
+        placeholder="อธิบายเกี่ยวกับโปรเจกต์นี้"
+        rows={3}
+      />
+
+      <div className="project-modal-actions">
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => setShowProjectModal(false)}
+        >
+          ยกเลิก
+        </button>
+
+        <button type="submit" className="primary-button">
+          <Plus size={17} /> สร้างโปรเจกต์
+        </button>
+      </div>
+    </form>
+  </div>
+)}
     </div>
   )
 }
