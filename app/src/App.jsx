@@ -76,6 +76,7 @@ function App() {
   const [search, setSearch] = useState('')
   const [selectedEntity, setSelectedEntity] = useState('USERS')
   const [projects, setProjects] = useState([])
+  const [selectedProject, setSelectedProject] = useState(null)
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
@@ -142,6 +143,7 @@ function App() {
     setProjectName('')
     setProjectDescription('')
     setShowProjectModal(false)
+    setActivePage('Projects')
   }
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -386,7 +388,48 @@ function App() {
             <StatCard icon={Link2} label="Relationships" value={relationships.length} note="Documented links" color="purple" />
             <StatCard icon={Activity} label="Documentation" value="Draft" note="Ready for review" color="orange" />
           </div>
+          {activePage === 'Projects' && (
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>
+                    <FolderKanban size={19} /> My Projects
+                  </h2>
+                  <p>จัดการโปรเจกต์เอกสารฐานข้อมูลของคุณ</p>
+                </div>
 
+                <button
+                  className="primary-button"
+                  onClick={() => setShowProjectModal(true)}
+                >
+                  <Plus size={17} /> New Project
+                </button>
+              </div>
+
+              {projects.length === 0 ? (
+                <div className="empty-state">
+                  ยังไม่มีโปรเจกต์ กด New Project เพื่อสร้างโปรเจกต์แรก
+                </div>
+              ) : (
+                <div className="entity-list">
+                  {projects.map((project) => (
+                    <div className="entity-row" key={project.id}>
+                      <div className="entity-icon blue">
+                        <FolderKanban size={19} />
+                      </div>
+
+                      <div className="entity-row-copy">
+                        <strong>{project.name}</strong>
+                        <span>
+                          {project.description || 'ไม่มีรายละเอียด'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
           {activePage === 'Overview' && (
             <div className="content-grid">
               <section className="panel entity-panel">
@@ -621,59 +664,59 @@ function App() {
         </footer>
       </main>
       {showProjectModal && (
-  <div className="project-modal-overlay">
-    <form className="project-modal" onSubmit={handleCreateProject}>
-      <div className="project-modal-header">
-        <div>
-          <h2>สร้างโปรเจกต์ใหม่</h2>
-          <p>เพิ่มพื้นที่สำหรับจัดเก็บเอกสารฐานข้อมูล</p>
+        <div className="project-modal-overlay">
+          <form className="project-modal" onSubmit={handleCreateProject}>
+            <div className="project-modal-header">
+              <div>
+                <h2>สร้างโปรเจกต์ใหม่</h2>
+                <p>เพิ่มพื้นที่สำหรับจัดเก็บเอกสารฐานข้อมูล</p>
+              </div>
+
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setShowProjectModal(false)}
+                aria-label="ปิด"
+              >
+                ×
+              </button>
+            </div>
+
+            <label htmlFor="project-name">ชื่อโปรเจกต์ *</label>
+            <input
+              id="project-name"
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
+              placeholder="เช่น Mappoint Database"
+              required
+              autoFocus
+            />
+
+            <label htmlFor="project-description">รายละเอียด</label>
+            <textarea
+              id="project-description"
+              value={projectDescription}
+              onChange={(event) => setProjectDescription(event.target.value)}
+              placeholder="อธิบายเกี่ยวกับโปรเจกต์นี้"
+              rows={3}
+            />
+
+            <div className="project-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setShowProjectModal(false)}
+              >
+                ยกเลิก
+              </button>
+
+              <button type="submit" className="primary-button">
+                <Plus size={17} /> สร้างโปรเจกต์
+              </button>
+            </div>
+          </form>
         </div>
-
-        <button
-          type="button"
-          className="icon-button"
-          onClick={() => setShowProjectModal(false)}
-          aria-label="ปิด"
-        >
-          ×
-        </button>
-      </div>
-
-      <label htmlFor="project-name">ชื่อโปรเจกต์ *</label>
-      <input
-        id="project-name"
-        value={projectName}
-        onChange={(event) => setProjectName(event.target.value)}
-        placeholder="เช่น Mappoint Database"
-        required
-        autoFocus
-      />
-
-      <label htmlFor="project-description">รายละเอียด</label>
-      <textarea
-        id="project-description"
-        value={projectDescription}
-        onChange={(event) => setProjectDescription(event.target.value)}
-        placeholder="อธิบายเกี่ยวกับโปรเจกต์นี้"
-        rows={3}
-      />
-
-      <div className="project-modal-actions">
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => setShowProjectModal(false)}
-        >
-          ยกเลิก
-        </button>
-
-        <button type="submit" className="primary-button">
-          <Plus size={17} /> สร้างโปรเจกต์
-        </button>
-      </div>
-    </form>
-  </div>
-)}
+      )}
     </div>
   )
 }
