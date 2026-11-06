@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import './App.css'
 
-const entities = [
+const initialEntities = [
   {
     name: 'USERS',
     description: 'ข้อมูลผู้ใช้และบัญชีของระบบ',
@@ -75,6 +75,23 @@ function App() {
   const [session, setSession] = useState(undefined)
   const [search, setSearch] = useState('')
   const [selectedEntity, setSelectedEntity] = useState('USERS')
+  const [entities, setEntities] = useState(initialEntities)
+  const [showEntityModal, setShowEntityModal] = useState(false)
+  const [editingEntity, setEditingEntity] = useState(null)
+  const [entityName, setEntityName] = useState('')
+  const [entityDescription, setEntityDescription] = useState('')
+  // Column Management
+  const [showColumnModal, setShowColumnModal] = useState(false)
+  const [editingColumn, setEditingColumn] = useState(null)
+  const [columnName, setColumnName] = useState('')
+  const [columnType, setColumnType] = useState('varchar')
+  const [columnKey, setColumnKey] = useState('')
+  const [columnNullable, setColumnNullable] = useState(true)
+  const [columnDefault, setColumnDefault] = useState('')
+  const [columnDescription, setColumnDescription] = useState('')
+  // Column Search & Filter
+  const [columnSearch, setColumnSearch] = useState('')
+  const [columnTypeFilter, setColumnTypeFilter] = useState('all')
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(null)
   const [showProjectModal, setShowProjectModal] = useState(false)
@@ -85,7 +102,7 @@ function App() {
     () => entities.flatMap((entity) =>
       entity.fields.map((field) => ({ ...field, entity: entity.name, color: entity.color })),
     ),
-    [],
+    [entities],
   )
 
   const filteredEntities = entities.filter((entity) =>
@@ -101,6 +118,18 @@ function App() {
   )
 
   const activeEntity = entities.find((entity) => entity.name === selectedEntity) ?? entities[0]
+  const filteredActiveFields = (activeEntity?.fields ?? []).filter((field) => {
+  const matchesSearch =
+    `${field.name} ${field.description ?? ''}`
+      .toLowerCase()
+      .includes(columnSearch.toLowerCase())
+
+  const matchesType =
+    columnTypeFilter === 'all' ||
+    field.type.toLowerCase() === columnTypeFilter.toLowerCase()
+
+  return matchesSearch && matchesType
+})
 
   const navItems = [
     { label: 'Projects', icon: FolderKanban },
@@ -145,6 +174,178 @@ function App() {
     setShowProjectModal(false)
     setActivePage('Projects')
   }
+  const handleSaveEntity = (event) => {
+    event.preventDefault()
+
+    const name = entityName.trim().toUpperCase()
+    const description = entityDescription.trim()
+
+    if (!name) return
+
+    const duplicate = entities.some(
+      (entity) =>
+        entity.name.toLowerCase() === name.toLowerCase() &&
+        entity.name !== editingEntity
+    )
+
+    if (duplicate) {
+      alert('มี Entity ชื่อนี้อยู่แล้ว')
+      return
+    }
+
+    if (editingEntity) {
+      setEntities((current) =>
+        current.map((entity) =>
+          entity.name === editingEntity
+            ? { ...entity, name, description }
+            : entity
+        )
+      )
+
+      setSelectedEntity(name)
+    } else {
+      setEntities((current) => [
+        ...current,
+        {
+          name,
+          description,
+          color: 'blue',
+          icon: Database,
+          fields: [],
+        },
+      ])
+
+      setSelectedEntity(name)
+    }
+
+    setEntityName('')
+    setEntityDescription('')
+    setEditingEntity(null)
+    setShowEntityModal(false)
+  }
+  const openEntityModal = (entity = null) => {
+    setEditingEntity(entity?.name ?? null)
+    setEntityName(entity?.name ?? '')
+    setEntityDescription(entity?.description ?? '')
+    setShowEntityModal(true)
+  }
+  const handleDeleteEntity = (name) => {
+    const confirmed = window.confirm(
+      `ต้องการลบ Entity ${name} ใช่หรือไม่?`
+    )
+
+    if (!confirmed) return
+
+    setEntities((current) =>
+      current.filter((entity) => entity.name !== name)
+    )
+
+    if (selectedEntity === name) {
+      const remaining = entities.filter((entity) => entity.name !== name)
+      setSelectedEntity(remaining[0]?.name ?? '')
+    }
+  }
+  // Open Column Modal
+  const openColumnModal = (field = null) => {
+    setEditingColumn(field)
+
+    setColumnName(field?.name ?? '')
+    setColumnType(field?.type ?? 'varchar')
+    setColumnKey(field?.key ?? '')
+    setColumnNullable(field?.nullable ?? true)
+    setColumnDefault(field?.defaultValue ?? '')
+    setColumnDescription(field?.description ?? '')
+
+    setShowColumnModal(true)
+  }
+
+  // Save Column
+  const handleSaveColumn = (event) => {
+    event.preventDefault()
+
+    if (!activeEntity) return
+
+    const trimmedName = columnName.trim()
+
+    if (!trimmedName) {
+      alert('กรุณากรอกชื่อ Column')
+      return
+    }
+
+    const isDuplicate = activeEntity.fields.some(
+      (field) =>
+        field.name.toLowerCase() === trimmedName.toLowerCase() &&
+        field.name !== editingColumn?.name
+    )
+
+    if (isDuplicate) {
+      alert('มี Column ชื่อนี้อยู่แล้ว')
+      return
+    }
+
+    const newField = {
+      name: trimmedName,
+      type: columnType,
+      key: columnKey,
+      nullable: columnNullable,
+      defaultValue: columnDefault.trim(),
+      description: columnDescription.trim(),
+    }
+
+    setEntities((currentEntities) =>
+      currentEntities.map((entity) => {
+        if (entity.name !== activeEntity.name) return entity
+
+        if (editingColumn) {
+          return {
+            ...entity,
+            fields: entity.fields.map((field) =>
+              field.name === editingColumn.name ? newField : field
+            ),
+          }
+        }
+
+        return {
+          ...entity,
+          fields: [...entity.fields, newField],
+        }
+      })
+    )
+
+    setShowColumnModal(false)
+    setEditingColumn(null)
+    setColumnName('')
+    setColumnType('varchar')
+    setColumnKey('')
+    setColumnNullable(true)
+    setColumnDefault('')
+    setColumnDescription('')
+  }
+
+  // Delete Column
+  const handleDeleteColumn = (fieldName) => {
+    if (!activeEntity) return
+
+    const confirmed = window.confirm(
+      `ต้องการลบ Column "${fieldName}" จาก ${activeEntity.name} ใช่หรือไม่?`
+    )
+
+    if (!confirmed) return
+
+    setEntities((currentEntities) =>
+      currentEntities.map((entity) => {
+        if (entity.name !== activeEntity.name) return entity
+
+        return {
+          ...entity,
+          fields: entity.fields.filter(
+            (field) => field.name !== fieldName
+          ),
+        }
+      })
+    )
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
@@ -282,6 +483,59 @@ function App() {
             <div className="brand-title">Entity Portal</div>
             <div className="brand-subtitle">Database Documentation</div>
           </div>
+          {showEntityModal && (
+            <div className="project-modal-overlay">
+              <form className="project-modal" onSubmit={handleSaveEntity}>
+                <div className="project-modal-header">
+                  <div>
+                    <h2>{editingEntity ? 'แก้ไข Entity' : 'สร้าง Entity ใหม่'}</h2>
+                    <p>กำหนดชื่อและรายละเอียดของ Entity</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setShowEntityModal(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <label htmlFor="entity-name">ชื่อ Entity *</label>
+                <input
+                  id="entity-name"
+                  value={entityName}
+                  onChange={(event) => setEntityName(event.target.value)}
+                  placeholder="เช่น CUSTOMERS"
+                  required
+                />
+
+                <label htmlFor="entity-description">รายละเอียด</label>
+                <textarea
+                  id="entity-description"
+                  value={entityDescription}
+                  onChange={(event) => setEntityDescription(event.target.value)}
+                  placeholder="อธิบายข้อมูลของ Entity นี้"
+                  rows={3}
+                />
+
+                <div className="project-modal-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setShowEntityModal(false)}
+                  >
+                    ยกเลิก
+                  </button>
+
+                  <button type="submit" className="primary-button">
+                    <Plus size={17} />
+                    {editingEntity ? 'บันทึกการแก้ไข' : 'สร้าง Entity'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
         </div>
 
         <div className="workspace-label">WORKSPACE</div>
@@ -563,8 +817,21 @@ function App() {
             <div className="content-grid entity-detail-grid">
               <section className="panel">
                 <div className="panel-heading">
-                  <div><h2><Database size={19} /> Entities</h2><p>Select a table to see its fields</p></div>
-                  <span className="result-count">{filteredEntities.length} results</span>
+                  <div>
+                    <h2><Database size={19} /> Entities</h2>
+                    <p>Select a table to see its fields</p>
+                  </div>
+
+                  <button
+                    className="primary-button"
+                    onClick={() => openEntityModal()}
+                  >
+                    <Plus size={17} /> New Entity
+                  </button>
+                </div>
+
+                <div className="result-count">
+                  {filteredEntities.length} results
                 </div>
                 <div className="search-box">
                   <Search size={17} />
@@ -586,12 +853,101 @@ function App() {
                   <div className={`entity-icon large ${activeEntity.color}`}><activeEntity.icon size={22} /></div>
                   <div><div className="eyebrow">ENTITY DETAILS</div><h2>{activeEntity.name}</h2><p>{activeEntity.description}</p></div>
                 </div>
+                <div className="entity-actions">
+                  <button
+                    className="secondary-button"
+                    onClick={() => openEntityModal(activeEntity)}
+                  >
+                    Edit Entity
+                  </button>
+
+                  <button
+                    className="secondary-button"
+                    onClick={() => handleDeleteEntity(activeEntity.name)}
+                  >
+                    Delete
+                  </button>
+                </div>
+                <div className="entity-actions">
+                  <button
+                    className="primary-button"
+                    onClick={() => openColumnModal()}
+                  >
+                    <Plus size={17} /> Add Column
+                  </button>
+                </div>
+
+                
+<div className="search-box dictionary-search">
+  <Search size={17} />
+  <input
+    value={columnSearch}
+    onChange={(event) => setColumnSearch(event.target.value)}
+    placeholder="Search column name or description..."
+  />
+</div>
+
+<div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+  <label htmlFor="column-type-filter">Filter by Type:</label>
+  <select
+    id="column-type-filter"
+    value={columnTypeFilter}
+    onChange={(event) => setColumnTypeFilter(event.target.value)}
+  >
+    <option value="all">All Types</option>
+    {[...new Set((activeEntity?.fields ?? []).map((field) => field.type))].map((type) => (
+      <option key={type} value={type}>{type}</option>
+    ))}
+  </select>
+
+  <span>{filteredActiveFields.length} columns</span>
+</div>
+
                 <div className="field-table-wrap">
                   <table className="field-table">
-                    <thead><tr><th>Field</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
-                    <tbody>{activeEntity.fields.map((field) => (
-                      <tr key={field.name}><td className="field-name">{field.name}</td><td><span className="type-tag">{field.type}</span></td><td>{field.key && <span className={`key-tag ${field.key.toLowerCase()}`}>{field.key}</span>}</td><td>{field.description}</td></tr>
-                    ))}</tbody>
+                    <thead>
+                      <tr>
+                        <th>Field</th>
+                        <th>Type</th>
+                        <th>Key</th>
+                        <th>Description</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {filteredActiveFields.map((field) => (
+                        <tr key={field.name}>
+                          <td className="field-name">{field.name}</td>
+                          <td><span className="type-tag">{field.type}</span></td>
+                          <td>
+                            {field.key && (
+                              <span className={`key-tag ${field.key.toLowerCase()}`}>
+                                {field.key}
+                              </span>
+                            )}
+                          </td>
+                          <td>{field.description}</td>
+                          <td>
+                            <button
+                              className="secondary-button"
+                              onClick={() => openColumnModal(field)}
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              className="secondary-button"
+                              onClick={() => handleDeleteColumn(field.name)}
+                            >
+                              Delete
+                            </button>
+
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+
                   </table>
                 </div>
                 <div className="detail-footer"><span><Table2 size={15} /> {activeEntity.fields.length} fields documented</span><span className="draft-label">Draft schema</span></div>
@@ -787,6 +1143,107 @@ function App() {
           </form>
         </div>
       )}
+
+      {showColumnModal && (
+        <div className="project-modal-overlay">
+          <form className="project-modal" onSubmit={handleSaveColumn}>
+            <div className="project-modal-header">
+              <div>
+                <h2>{editingColumn ? 'แก้ไข Column' : 'เพิ่ม Column'}</h2>
+                <p>กำหนดรายละเอียดของ Column ใน {activeEntity?.name}</p>
+              </div>
+
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setShowColumnModal(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <label htmlFor="column-name">ชื่อ Column *</label>
+            <input
+              id="column-name"
+              value={columnName}
+              onChange={(event) => setColumnName(event.target.value)}
+              placeholder="เช่น user_id"
+              required
+            />
+
+            <label htmlFor="column-type">Data Type</label>
+            <select
+              id="column-type"
+              value={columnType}
+              onChange={(event) => setColumnType(event.target.value)}
+            >
+              <option value="varchar">VARCHAR</option>
+              <option value="int">INT</option>
+              <option value="bigint">BIGINT</option>
+              <option value="text">TEXT</option>
+              <option value="boolean">BOOLEAN</option>
+              <option value="date">DATE</option>
+              <option value="datetime">DATETIME</option>
+              <option value="decimal">DECIMAL</option>
+              <option value="uuid">UUID</option>
+            </select>
+
+            <label htmlFor="column-key">Key</label>
+            <select
+              id="column-key"
+              value={columnKey}
+              onChange={(event) => setColumnKey(event.target.value)}
+            >
+              <option value="">None</option>
+              <option value="PK">Primary Key (PK)</option>
+              <option value="FK">Foreign Key (FK)</option>
+              <option value="UK">Unique Key (UK)</option>
+            </select>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={columnNullable}
+                onChange={(event) => setColumnNullable(event.target.checked)}
+              />
+              Allow NULL
+            </label>
+
+            <label htmlFor="column-default">Default Value</label>
+            <input
+              id="column-default"
+              value={columnDefault}
+              onChange={(event) => setColumnDefault(event.target.value)}
+              placeholder="เช่น NULL หรือ 0"
+            />
+
+            <label htmlFor="column-description">Description</label>
+            <textarea
+              id="column-description"
+              value={columnDescription}
+              onChange={(event) => setColumnDescription(event.target.value)}
+              placeholder="อธิบาย Column นี้"
+              rows={3}
+            />
+
+            <div className="project-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setShowColumnModal(false)}
+              >
+                ยกเลิก
+              </button>
+
+              <button type="submit" className="primary-button">
+                <Plus size={17} />
+                {editingColumn ? 'บันทึกการแก้ไข' : 'เพิ่ม Column'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
     </div>
   )
 }
