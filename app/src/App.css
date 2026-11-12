@@ -2008,3 +2008,741 @@ h1 {
     flex-wrap: wrap;
   }
 }
+/* Relationship Management */
+
+.relationship-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px;
+  border-bottom: 1px solid var(--border-color, #e8eaf0);
+}
+
+.relationship-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.relationship-entities {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.relationship-connection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.relationship-fields {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #64748b;
+}
+
+.relationship-fields code {
+  background: #f1f5f9;
+  color: #334155;
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.relationship-label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.relationship-content p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.relationship-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.relationship-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.relationship-actions button:hover {
+  background: #f1f5f9;
+  color: #2563eb;
+}
+
+.relationship-form-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.relationship-modal select,
+.relationship-modal input,
+.relationship-modal textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 600px) {
+  .relationship-row {
+    flex-direction: column;
+  }
+
+  .relationship-actions {
+    align-self: flex-end;
+  }
+}
+
+/* ให้ modal เลื่อนได้เมื่อเนื้อหายาวกว่าจอ */
+.project-modal {
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+
+/* ให้ select หน้าตาเหมือน input */
+.project-modal select {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 9px;
+  background: #fff;
+  color: #1f2937;
+  font: inherit;
+}
+
+.project-modal select:focus {
+  outline: 2px solid #bfdbfe;
+  border-color: #60a5fa;
+}
+
+/* checkbox "Allow NULL" ไม่ให้ถูกขยายเต็มความกว้าง */
+.project-modal input[type="checkbox"] {
+  display: inline-block;
+  width: auto;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* ระยะห่างของแต่ละช่องใน Relationship modal */
+.form-group {
+  margin-bottom: 4px;
+}
+
+.relationship-form-divider {
+  justify-content: center;
+  padding: 8px 0;
+  border-top: 1px dashed #e5e7eb;
+  border-bottom: 1px dashed #e5e7eb;
+}
+/* ===== Dynamic ER Diagram ===== */
+.er-board {
+  position: relative;
+}
+
+.er-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.er-node {
+  position: absolute;
+  z-index: 2;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.er-node-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 44px;
+  padding: 0 12px;
+}
+
+.er-node-header strong {
+  font-size: 12px;
+}
+
+.er-node-header span {
+  margin-left: auto;
+  font-size: 10px;
+  color: #8791a4;
+}
+
+.er-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border-top: 1px solid #f0f2f7;
+}
+
+.er-field-icon {
+  width: 16px;
+  font-size: 11px;
+}
+
+.er-field strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  color: #48546d;
+}
+
+.er-field small {
+  white-space: nowrap;
+  font-size: 10px;
+  color: #969fb0;
+}
+
+.er-field.empty {
+  justify-content: center;
+  color: #a5adbb;
+  font-size: 10px;
+}
+/* ===== Projects (folders) ===== */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.project-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px;
+  border: 1px solid #e8edf5;
+  border-radius: 15px;
+  background: #fff;
+  color: #26334e;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: 0 3px 12px #29365a05;
+  transition: all 0.18s ease;
+}
+
+.project-card:hover {
+  border-color: #b9baf7;
+  background: #f8f9ff;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px #6263e81a;
+}
+
+.project-card-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  background: #efefff;
+  color: #5b5de6;
+}
+
+.project-card strong {
+  font-size: 14px;
+}
+
+.project-card p {
+  margin: 0;
+  min-height: 36px;
+  color: #8993a7;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.project-card-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.project-card-meta span {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #f5f6fa;
+  color: #8c95a7;
+  font-size: 10px;
+}
+
+.project-card-delete {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #b0b8c8;
+}
+
+.project-card-delete:hover {
+  border-color: #f2dada;
+  background: #fff3f3;
+  color: #d65353;
+}
+
+.project-card-new {
+  align-items: center;
+  justify-content: center;
+  min-height: 190px;
+  border-style: dashed;
+  background: #fafaff;
+  color: #6263e8;
+}
+
+.current-project {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 4px 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: #f5f6ff;
+  color: #5b5de6;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.current-project span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* ===== Project switcher dropdown ===== */
+.workspace-menu {
+  position: relative;
+}
+
+button.workspace-switch {
+  width: 100%;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition: all 0.18s ease;
+}
+
+button.workspace-switch:hover {
+  border-color: #d7d7fa;
+  background: #f8f9ff;
+}
+
+.workspace-switch svg:last-child {
+  color: #9aa3b5;
+  transition: transform 0.18s ease;
+}
+
+.workspace-switch .chevron-open {
+  transform: rotate(180deg);
+}
+
+.workspace-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.workspace-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 21;
+  padding: 8px;
+  border: 1px solid #e5e8f2;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(30, 41, 80, 0.16);
+}
+
+.workspace-dropdown-title {
+  padding: 6px 8px 8px;
+  color: #9ba4b6;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.workspace-dropdown-list {
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.workspace-dropdown-empty {
+  padding: 10px 8px;
+  color: #9ba4b6;
+  font-size: 10px;
+}
+
+.workspace-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #5a5de4;
+  text-align: left;
+}
+
+.workspace-option:hover,
+.workspace-option.active {
+  background: #f1f1ff;
+}
+
+.workspace-option-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #e6f8f3;
+  color: #12866d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.workspace-option-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-option-copy strong,
+.workspace-option-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-option-copy strong {
+  color: #34415e;
+  font-size: 11px;
+}
+
+.workspace-option-copy small {
+  margin-top: 2px;
+  color: #9aa3b5;
+  font-size: 9px;
+}
+
+.workspace-dropdown-divider {
+  height: 1px;
+  margin: 8px 0;
+  background: #eef0f6;
+}
+
+.workspace-action {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #66718a;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.workspace-action:hover {
+  background: #f5f6ff;
+  color: #5a5de4;
+}
+
+@media (hover: none) {
+  .project-card-delete {
+    opacity: 1;
+  }
+}
+
+/* ลิงก์กลับใน Sidebar */
+.sidebar-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 26px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #6d7890;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  transition: 0.18s ease;
+}
+
+.sidebar-back:hover {
+  background: #f5f6ff;
+  color: #5a5de4;
+}
+
+.sidebar-back + .workspace-label {
+  margin-top: 18px;
+}
+
+/* Breadcrumb ที่กดได้ */
+.crumb-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8b95a9;
+  font-size: 11px;
+}
+
+.crumb-link:hover {
+  color: #5a5de4;
+  text-decoration: underline;
+}
+
+/* ปุ่มบนการ์ดโปรเจกต์ */
+.project-card-actions {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 4px;
+}
+
+.project-card-actions .project-card-delete {
+  position: static;
+}
+
+.project-card-edit {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #b0b8c8;
+}
+
+.project-card-edit:hover {
+  border-color: #d7d7fa;
+  background: #f5f5ff;
+  color: #5b5ddd;
+}
+.entity-panel .entity-row {
+  cursor: default;
+}
+.entity-panel .entity-row:hover {
+  background: #fff;
+  border-color: transparent;
+}
+.side-stack {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* Field type bars */
+.type-bars {
+  display: grid;
+  gap: 12px;
+  padding: 0 20px 20px;
+}
+.type-bar-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 24px;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+}
+.type-bar-label {
+  font-family: Consolas, monospace;
+  color: #48546d;
+}
+.type-bar-track {
+  height: 8px;
+  border-radius: 99px;
+  background: #f1f3f8;
+  overflow: hidden;
+}
+.type-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #8885f4, #5758d8);
+}
+.type-bar-count {
+  text-align: right;
+  color: #8a94a8;
+  font-weight: 700;
+}
+
+/* Documentation health */
+.health-body {
+  padding: 0 20px 20px;
+}
+.health-track {
+  height: 8px;
+  border-radius: 99px;
+  background: #f1f3f8;
+  overflow: hidden;
+}
+.health-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #4cc9a4, #20a98a);
+}
+.health-list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 10px;
+  color: #66718a;
+}
+.health-list li {
+  position: relative;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+.health-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.health-list li.ok::before { background: #26b88c; }
+.health-list li.warn::before { background: #e0a23c; }
+.health-list small {
+  display: block;
+  color: #9aa3b4;
+  font-size: 9px;
+}
+/* Toolbar ของหน้า Entities */
+.entity-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #eff1f6;
+}
+
+.entity-toolbar .column-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  margin: 0;
+}
+
+.filter-select {
+  height: 40px;
+  padding: 0 32px 0 12px;
+  border: 1px solid #e1e5ef;
+  border-radius: 9px;
+  background: #fff;
+  color: #566078;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filter-select:focus {
+  outline: 3px solid rgba(104, 105, 235, 0.2);
+  border-color: #9b9af1;
+}
+
+.entity-toolbar .result-count {
+  padding: 0 4px;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.toolbar-actions .danger-button {
+  border-color: #f2dada;
+  color: #d65353;
+}
+
+.toolbar-actions .danger-button:hover {
+  border-color: #f0bebe;
+  background: #fff3f3;
+  color: #c53e3e;
+}
+
+/* ปุ่ม Edit / Delete ในตาราง ให้เล็กลงและเว้นระยะ */
+.field-table td .secondary-button {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 11px;
+  margin-right: 6px;
+}
+
+.field-table td .secondary-button:last-child {
+  margin-right: 0;
+  border-color: #f2dada;
+  color: #d65353;
+}
+
+.field-table td .secondary-button:last-child:hover {
+  background: #fff3f3;
+  border-color: #f0bebe;
+}
+
+/* ให้ตารางไม่ติดขอบซ้าย */
+.field-table th:first-child,
+.field-table td:first-child {
+  padding-left: 20px;
+}

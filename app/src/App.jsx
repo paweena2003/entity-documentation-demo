@@ -5,10 +5,10 @@ import {
   ArrowDownRight,
   FolderKanban,
   ArrowRight,
+  ArrowLeft,
   BookOpen,
   CheckCircle2,
   ChevronDown,
-  CircleHelp,
   Clock3,
   Database,
   FileText,
@@ -17,6 +17,9 @@ import {
   Link2,
   Plus,
   Search,
+  Pencil,
+  Trash2,
+  X,
   Settings2,
   ShieldCheck,
   Table2,
@@ -64,18 +67,85 @@ const initialEntities = [
   },
 ]
 
-const relationships = [
-  { from: 'USERS', to: 'POSTS', label: 'creates', detail: 'ผู้ใช้หนึ่งคนสร้างโพสต์ได้หลายรายการ', color: 'green' },
-  { from: 'USERS', to: 'FOLLOWS', label: 'following', detail: 'ผู้ใช้หนึ่งคนมีรายการติดตามได้หลายรายการ', color: 'purple' },
-  { from: 'USERS', to: 'FOLLOWS', label: 'followed', detail: 'ผู้ใช้หนึ่งคนถูกติดตามได้หลายรายการ', color: 'blue' },
+const initialRelationships = [
+  {
+    id: 1,
+    fromEntity: 'USERS',
+    fromField: 'id',
+    toEntity: 'POSTS',
+    toField: 'user_id',
+    type: '1:N',
+    label: 'creates',
+    detail: 'ผู้ใช้หนึ่งคนสร้างโพสต์ได้หลายรายการ',
+  },
+  {
+    id: 2,
+    fromEntity: 'USERS',
+    fromField: 'id',
+    toEntity: 'FOLLOWS',
+    toField: 'following_user_id',
+    type: '1:N',
+    label: 'following',
+    detail: 'ผู้ใช้หนึ่งคนมีรายการติดตามได้หลายรายการ',
+  },
+  {
+    id: 3,
+    fromEntity: 'USERS',
+    fromField: 'id',
+    toEntity: 'FOLLOWS',
+    toField: 'followed_user_id',
+    type: '1:N',
+    label: 'followed',
+    detail: 'ผู้ใช้หนึ่งคนถูกติดตามได้หลายรายการ',
+  },
+]
+const initialProjects = [
+  {
+    id: 1,
+    name: 'Demo Project',
+    description: 'ตัวอย่างระบบโซเชียล (USERS, POSTS, FOLLOWS)',
+    entities: initialEntities,
+    relationships: initialRelationships,
+  },
 ]
 
+
+// ===== ER Diagram layout =====
+const NODE_W = 260
+const HEADER_H = 44
+const ROW_H = 34
+const GAP_X = 150
+const GAP_Y = 60
+const PAD = 30
+const PAD_RIGHT = 90 // เว้นที่ให้เส้นโค้งฝั่งขวา
+const MAX_COLS = 3
+
+const COLOR_HEX = { blue: '#5689ed', green: '#20a98a', purple: '#8b69e8', orange: '#d99743' }
+const COLOR_TINT = { blue: '#eaf1ff', green: '#e4f8f1', purple: '#f0eaff', orange: '#fff3e1' }
+
+//const [showProjectMenu, setShowProjectMenu] = useState(false)
+//const [editingProject, setEditingProject] = useState(null)
+
+
 function App() {
-  const [activePage, setActivePage] = useState('Overview')
+  const [activePage, setActivePage] = useState('Projects')
   const [session, setSession] = useState(undefined)
   const [search, setSearch] = useState('')
-  const [selectedEntity, setSelectedEntity] = useState('USERS')
-  const [entities, setEntities] = useState(initialEntities)
+  //const [selectedEntity, setSelectedEntity] = useState('USERS')
+  //const [entities, setEntities] = useState(initialEntities)
+  // Relationship Management
+  //const [relationships, setRelationships] = useState(initialRelationships)
+  const [showRelationshipModal, setShowRelationshipModal] = useState(false)
+  const [editingRelationship, setEditingRelationship] = useState(null)
+
+  const [relationshipFromEntity, setRelationshipFromEntity] = useState('')
+  const [relationshipFromField, setRelationshipFromField] = useState('')
+  const [relationshipToEntity, setRelationshipToEntity] = useState('')
+  const [relationshipToField, setRelationshipToField] = useState('')
+  const [relationshipType, setRelationshipType] = useState('1:N')
+  const [relationshipLabel, setRelationshipLabel] = useState('')
+  const [relationshipDetail, setRelationshipDetail] = useState('')
+
   const [showEntityModal, setShowEntityModal] = useState(false)
   const [editingEntity, setEditingEntity] = useState(null)
   const [entityName, setEntityName] = useState('')
@@ -92,11 +162,49 @@ function App() {
   // Column Search & Filter
   const [columnSearch, setColumnSearch] = useState('')
   const [columnTypeFilter, setColumnTypeFilter] = useState('all')
-  const [projects, setProjects] = useState([])
-  const [selectedProject, setSelectedProject] = useState(null)
+  //const [projects, setProjects] = useState([])
+  //const [selectedProject, setSelectedProject] = useState(null)
+  const [projects, setProjects] = useState(initialProjects)
+  const [selectedProjectId, setSelectedProjectId] = useState(null)
+  const [selectedEntity, setSelectedEntity] = useState('')
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
+
+  // โปรเจกต์ที่เปิดอยู่ และข้อมูลของโปรเจกต์นั้น
+  const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
+  const entities = selectedProject?.entities ?? []
+  const relationships = selectedProject?.relationships ?? []
+
+  const [showProjectMenu, setShowProjectMenu] = useState(false)
+  const [editingProject, setEditingProject] = useState(null)
+
+  const closeColumnModal = () => {
+    setShowColumnModal(false)
+    setEditingColumn(null)
+    setColumnName('')
+    setColumnType('varchar')
+    setColumnKey('')
+    setColumnNullable(true)
+    setColumnDefault('')
+    setColumnDescription('')
+  }
+
+  const updateProjectData = (key, updater) => {
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === selectedProjectId
+          ? {
+            ...project,
+            [key]: typeof updater === 'function' ? updater(project[key]) : updater,
+          }
+          : project
+      )
+    )
+  }
+
+  const setEntities = (updater) => updateProjectData('entities', updater)
+  const setRelationships = (updater) => updateProjectData('relationships', updater)
 
   const allFields = useMemo(
     () => entities.flatMap((entity) =>
@@ -104,6 +212,7 @@ function App() {
     ),
     [entities],
   )
+
 
   const filteredEntities = entities.filter((entity) =>
     `${entity.name} ${entity.description} ${entity.fields.map((f) => f.name).join(' ')}`
@@ -117,22 +226,32 @@ function App() {
       .includes(search.toLowerCase()),
   )
 
-  const activeEntity = entities.find((entity) => entity.name === selectedEntity) ?? entities[0]
+
+  const activeEntity =
+    entities.find((entity) => entity.name === selectedEntity) ??
+    entities[0] ??
+    {
+      name: '',
+      description: '',
+      color: 'blue',
+      icon: Database,
+      fields: [],
+    }
+
   const filteredActiveFields = (activeEntity?.fields ?? []).filter((field) => {
-  const matchesSearch =
-    `${field.name} ${field.description ?? ''}`
-      .toLowerCase()
-      .includes(columnSearch.toLowerCase())
+    const matchesSearch =
+      `${field.name} ${field.description ?? ''}`
+        .toLowerCase()
+        .includes(columnSearch.toLowerCase())
 
-  const matchesType =
-    columnTypeFilter === 'all' ||
-    field.type.toLowerCase() === columnTypeFilter.toLowerCase()
+    const matchesType =
+      columnTypeFilter === 'all' ||
+      field.type.toLowerCase() === columnTypeFilter.toLowerCase()
 
-  return matchesSearch && matchesType
-})
+    return matchesSearch && matchesType
+  })
 
-  const navItems = [
-    { label: 'Projects', icon: FolderKanban },
+  const projectNavItems = [
     { label: 'Overview', icon: LayoutDashboard },
     { label: 'Entities', icon: Database },
     { label: 'Relationships', icon: Link2 },
@@ -154,26 +273,73 @@ function App() {
       alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message)
     }
   }
-  const handleCreateProject = (event) => {
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      alert('ออกจากระบบไม่สำเร็จ: ' + error.message)
+      return
+    }
+    setSelectedProjectId(null)
+    setActivePage('Projects')
+  }
+  const openProjectModal = (project = null) => {
+    setEditingProject(project)
+    setProjectName(project?.name ?? '')
+    setProjectDescription(project?.description ?? '')
+    setShowProjectMenu(false)
+    setShowProjectModal(true)
+  }
+
+  const closeProjectModal = () => {
+    setShowProjectModal(false)
+    setEditingProject(null)
+    setProjectName('')
+    setProjectDescription('')
+  }
+
+  const handleSaveProject = (event) => {
     event.preventDefault()
 
     const name = projectName.trim()
     if (!name) return
 
-    setProjects((current) => [
-      ...current,
-      {
-        id: Date.now(),
-        name,
-        description: projectDescription.trim(),
-      },
-    ])
+    const duplicate = projects.some(
+      (project) =>
+        project.name.toLowerCase() === name.toLowerCase() &&
+        project.id !== editingProject?.id
+    )
 
-    setProjectName('')
-    setProjectDescription('')
-    setShowProjectModal(false)
-    setActivePage('Projects')
+    if (duplicate) {
+      alert('มีโปรเจกต์ชื่อนี้อยู่แล้ว')
+      return
+    }
+
+    if (editingProject) {
+      setProjects((current) =>
+        current.map((project) =>
+          project.id === editingProject.id
+            ? { ...project, name, description: projectDescription.trim() }
+            : project
+        )
+      )
+      closeProjectModal()
+      return
+    }
+    // สร้างโปรเจกต์ใหม่ แล้วเข้าไปที่หน้า Entities ทันที
+    const newProject = {
+      id: Date.now(),
+      name,
+      description: projectDescription.trim(),
+      entities: [],
+      relationships: [],
+    }
+
+    setProjects((current) => [...current, newProject])
+    closeProjectModal()
+    openProject(newProject)
+    setActivePage('Entities')
   }
+
   const handleSaveEntity = (event) => {
     event.preventDefault()
 
@@ -193,7 +359,9 @@ function App() {
       return
     }
 
+
     if (editingEntity) {
+      // เปลี่ยนชื่อ Entity
       setEntities((current) =>
         current.map((entity) =>
           entity.name === editingEntity
@@ -202,14 +370,30 @@ function App() {
         )
       )
 
+      // เปลี่ยนชื่อ Entity ใน Relationships ด้วย
+      setRelationships((current) =>
+        current.map((rel) => ({
+          ...rel,
+          fromEntity:
+            rel.fromEntity === editingEntity
+              ? name
+              : rel.fromEntity,
+          toEntity:
+            rel.toEntity === editingEntity
+              ? name
+              : rel.toEntity,
+        }))
+      )
+
       setSelectedEntity(name)
+
     } else {
       setEntities((current) => [
         ...current,
         {
           name,
           description,
-          color: 'blue',
+          color: ['blue', 'green', 'purple', 'orange'][entities.length % 4],
           icon: Database,
           fields: [],
         },
@@ -223,12 +407,42 @@ function App() {
     setEditingEntity(null)
     setShowEntityModal(false)
   }
+  const openProject = (project) => {
+    setSelectedProjectId(project.id)
+    setSelectedEntity(project.entities[0]?.name ?? '')
+    setSearch('')
+    setColumnSearch('')
+    setColumnTypeFilter('all')
+    setActivePage('Overview')
+  }
+
+  const closeProject = () => {
+    setSelectedProjectId(null)
+    setActivePage('Projects')
+  }
+
+  const handleDeleteProject = (project) => {
+    const confirmed = window.confirm(
+      `ต้องการลบโปรเจกต์ "${project.name}" และข้อมูลทั้งหมดในโปรเจกต์ใช่หรือไม่?`
+    )
+    if (!confirmed) return
+
+    setProjects((current) => current.filter((p) => p.id !== project.id))
+  }
   const openEntityModal = (entity = null) => {
     setEditingEntity(entity?.name ?? null)
     setEntityName(entity?.name ?? '')
     setEntityDescription(entity?.description ?? '')
     setShowEntityModal(true)
   }
+
+  const closeEntityModal = () => {
+    setShowEntityModal(false)
+    setEditingEntity(null)
+    setEntityName('')
+    setEntityDescription('')
+  }
+
   const handleDeleteEntity = (name) => {
     const confirmed = window.confirm(
       `ต้องการลบ Entity ${name} ใช่หรือไม่?`
@@ -236,15 +450,30 @@ function App() {
 
     if (!confirmed) return
 
+    // ลบ Entity
     setEntities((current) =>
       current.filter((entity) => entity.name !== name)
     )
 
+    // ลบ Relationship ที่เชื่อมกับ Entity นี้
+    setRelationships((current) =>
+      current.filter(
+        (rel) =>
+          rel.fromEntity !== name &&
+          rel.toEntity !== name
+      )
+    )
+
+    // ถ้า Entity ที่กำลังเลือกถูกลบ ให้เลือก Entity ตัวแรกที่เหลือ
     if (selectedEntity === name) {
-      const remaining = entities.filter((entity) => entity.name !== name)
+      const remaining = entities.filter(
+        (entity) => entity.name !== name
+      )
+
       setSelectedEntity(remaining[0]?.name ?? '')
     }
   }
+
   // Open Column Modal
   const openColumnModal = (field = null) => {
     setEditingColumn(field)
@@ -312,6 +541,27 @@ function App() {
       })
     )
 
+    // ถ้าเป็นการแก้ไข Column ให้เปลี่ยนชื่อใน Relationship ด้วย
+    if (editingColumn && editingColumn.name !== trimmedName) {
+      setRelationships((current) =>
+        current.map((rel) => ({
+          ...rel,
+
+          fromField:
+            rel.fromEntity === activeEntity.name &&
+              rel.fromField === editingColumn.name
+              ? trimmedName
+              : rel.fromField,
+
+          toField:
+            rel.toEntity === activeEntity.name &&
+              rel.toField === editingColumn.name
+              ? trimmedName
+              : rel.toField,
+        }))
+      )
+    }
+
     setShowColumnModal(false)
     setEditingColumn(null)
     setColumnName('')
@@ -322,7 +572,9 @@ function App() {
     setColumnDescription('')
   }
 
+
   // Delete Column
+
   const handleDeleteColumn = (fieldName) => {
     if (!activeEntity) return
 
@@ -332,9 +584,12 @@ function App() {
 
     if (!confirmed) return
 
+    const entityName = activeEntity.name
+
+    // ลบ Column จาก Entity
     setEntities((currentEntities) =>
       currentEntities.map((entity) => {
-        if (entity.name !== activeEntity.name) return entity
+        if (entity.name !== entityName) return entity
 
         return {
           ...entity,
@@ -343,6 +598,119 @@ function App() {
           ),
         }
       })
+    )
+
+    // ลบ Relationship ที่อ้างถึง Column นี้
+    setRelationships((current) =>
+      current.filter(
+        (rel) =>
+          !(
+            (rel.fromEntity === entityName &&
+              rel.fromField === fieldName) ||
+            (rel.toEntity === entityName &&
+              rel.toField === fieldName)
+          )
+      )
+    )
+  }
+  // Open Relationship Modal
+  const openRelationshipModal = (relationship = null) => {
+    if (relationship) {
+      setEditingRelationship(relationship)
+
+      setRelationshipFromEntity(relationship.fromEntity)
+      setRelationshipFromField(relationship.fromField)
+
+      setRelationshipToEntity(relationship.toEntity)
+      setRelationshipToField(relationship.toField)
+
+      setRelationshipType(relationship.type)
+      setRelationshipLabel(relationship.label)
+      setRelationshipDetail(relationship.detail)
+    } else {
+      setEditingRelationship(null)
+
+      setRelationshipFromEntity(entities[0]?.name || '')
+      setRelationshipFromField(entities[0]?.fields[0]?.name || '')
+
+      setRelationshipToEntity(entities[1]?.name || entities[0]?.name || '')
+      setRelationshipToField(entities[1]?.fields[0]?.name || '')
+
+      setRelationshipType('1:N')
+      setRelationshipLabel('')
+      setRelationshipDetail('')
+    }
+
+    setShowRelationshipModal(true)
+  }
+
+  // Save Relationship
+  const handleSaveRelationship = (event) => {
+    event.preventDefault()
+
+    if (
+      !relationshipFromEntity ||
+      !relationshipFromField ||
+      !relationshipToEntity ||
+      !relationshipToField
+    ) {
+      alert('กรุณาเลือก Entity และ Column ให้ครบ')
+      return
+    }
+
+    if (
+      relationshipFromEntity === relationshipToEntity &&
+      relationshipFromField === relationshipToField
+    ) {
+      alert('ไม่สามารถเชื่อม Column เดียวกันเข้าหาตัวเองได้')
+      return
+    }
+
+    const relationshipData = {
+      id: editingRelationship
+        ? editingRelationship.id
+        : Date.now(),
+
+      fromEntity: relationshipFromEntity,
+      fromField: relationshipFromField,
+
+      toEntity: relationshipToEntity,
+      toField: relationshipToField,
+
+      type: relationshipType,
+      label: relationshipLabel.trim(),
+      detail: relationshipDetail.trim(),
+    }
+
+    if (editingRelationship) {
+      setRelationships((current) =>
+        current.map((relationship) =>
+          relationship.id === editingRelationship.id
+            ? relationshipData
+            : relationship
+        )
+      )
+    } else {
+      setRelationships((current) => [
+        ...current,
+        relationshipData,
+      ])
+    }
+
+    setShowRelationshipModal(false)
+    setEditingRelationship(null)
+  }
+
+  // Delete Relationship
+  const handleDeleteRelationship = (id) => {
+    const confirmed = window.confirm(
+      'คุณต้องการลบ Relationship นี้ใช่หรือไม่?'
+    )
+
+    if (!confirmed) return
+
+    setRelationships((current) =>
+      current.filter((relationship) => relationship.id !== id)
     )
   }
 
@@ -360,7 +728,88 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  const diagram = useMemo(() => {
+    const cols = Math.min(MAX_COLS, Math.max(entities.length, 1))
+    const nodeH = (e) => HEADER_H + Math.max(e.fields.length, 1) * ROW_H
+    const rowCount = Math.ceil(entities.length / cols)
 
+    const rowHeights = Array.from({ length: rowCount }, (_, r) =>
+      Math.max(...entities.slice(r * cols, r * cols + cols).map(nodeH)),
+    )
+
+    let y = PAD
+    const rowY = rowHeights.map((h) => {
+      const top = y
+      y += h + GAP_Y
+      return top
+    })
+
+    const nodes = {}
+    entities.forEach((entity, i) => {
+      const col = i % cols
+      const row = Math.floor(i / cols)
+      nodes[entity.name] = {
+        entity,
+        col,
+        x: PAD + col * (NODE_W + GAP_X),
+        y: rowY[row],
+      }
+    })
+
+    const width = PAD + cols * NODE_W + (cols - 1) * GAP_X + PAD_RIGHT
+    const height = Math.max(rowCount ? y - GAP_Y + PAD : 0, 200)
+
+    const edges = relationships
+      .map((rel) => {
+        const a = nodes[rel.fromEntity]
+        const b = nodes[rel.toEntity]
+        if (!a || !b) return null
+
+        const ai = a.entity.fields.findIndex((f) => f.name === rel.fromField)
+        const bi = b.entity.fields.findIndex((f) => f.name === rel.toField)
+        if (ai < 0 || bi < 0) return null
+
+        const ay = a.y + HEADER_H + ai * ROW_H + ROW_H / 2
+        const by = b.y + HEADER_H + bi * ROW_H + ROW_H / 2
+
+        let ax, bx, c1x, c2x
+        if (a.col === b.col) {
+          // อยู่คอลัมน์เดียวกัน (หรือเชื่อมตัวเอง): ออกฝั่งขวาแล้ววนกลับ
+          ax = a.x + NODE_W
+          bx = b.x + NODE_W
+          c1x = ax + 70
+          c2x = bx + 70
+        } else if (a.col < b.col) {
+          ax = a.x + NODE_W
+          bx = b.x
+          c1x = ax + 60
+          c2x = bx - 60
+        } else {
+          ax = a.x
+          bx = b.x + NODE_W
+          c1x = ax - 60
+          c2x = bx + 60
+        }
+
+        const [fromCard = '1', toCard = 'N'] = (rel.type || '1:N').split(':')
+
+        return {
+          id: rel.id,
+          label: rel.label,
+          color: COLOR_HEX[b.entity.color] ?? '#8b69e8',
+          d: `M ${ax} ${ay} C ${c1x} ${ay}, ${c2x} ${by}, ${bx} ${by}`,
+          mx: (ax + 3 * c1x + 3 * c2x + bx) / 8,
+          my: (ay + by) / 2,
+          ax, ay, bx, by,
+          fromCard, toCard,
+          dirA: c1x >= ax ? 1 : -1,
+          dirB: c2x >= bx ? 1 : -1,
+        }
+      })
+      .filter(Boolean)
+
+    return { nodes: Object.values(nodes), edges, width, height }
+  }, [entities, relationships])
   if (session === undefined) {
     return (
       <div className="login-loading">
@@ -483,108 +932,114 @@ function App() {
             <div className="brand-title">Entity Portal</div>
             <div className="brand-subtitle">Database Documentation</div>
           </div>
-          {showEntityModal && (
-            <div className="project-modal-overlay">
-              <form className="project-modal" onSubmit={handleSaveEntity}>
-                <div className="project-modal-header">
-                  <div>
-                    <h2>{editingEntity ? 'แก้ไข Entity' : 'สร้าง Entity ใหม่'}</h2>
-                    <p>กำหนดชื่อและรายละเอียดของ Entity</p>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() => setShowEntityModal(false)}
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <label htmlFor="entity-name">ชื่อ Entity *</label>
-                <input
-                  id="entity-name"
-                  value={entityName}
-                  onChange={(event) => setEntityName(event.target.value)}
-                  placeholder="เช่น CUSTOMERS"
-                  required
-                />
-
-                <label htmlFor="entity-description">รายละเอียด</label>
-                <textarea
-                  id="entity-description"
-                  value={entityDescription}
-                  onChange={(event) => setEntityDescription(event.target.value)}
-                  placeholder="อธิบายข้อมูลของ Entity นี้"
-                  rows={3}
-                />
-
-                <div className="project-modal-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => setShowEntityModal(false)}
-                  >
-                    ยกเลิก
-                  </button>
-
-                  <button type="submit" className="primary-button">
-                    <Plus size={17} />
-                    {editingEntity ? 'บันทึกการแก้ไข' : 'สร้าง Entity'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
         </div>
 
-        <div className="workspace-label">WORKSPACE</div>
-        <div className="workspace-switch">
-          <div className="workspace-avatar">M</div>
-          <div className="workspace-copy">
-            <strong>Mappoint Project</strong>
-            <span>Documentation space</span>
-          </div>
-          <ChevronDown size={16} />
-        </div>
-
-        <div className="nav-label">MENU</div>
-        <nav className="navigation">
-          {navItems.map(({ label, icon: Icon }) => (
-            <button
-              key={label}
-              className={`nav-item ${activePage === label ? 'active' : ''}`}
-              onClick={() => setActivePage(label)}
-            >
-              <Icon size={18} />
-              <span>{label}</span>
-              {label === 'Entities' && <span className="nav-count">3</span>}
+        {selectedProject && (
+          <>
+            <button type="button" className="sidebar-back" onClick={closeProject}>
+              <ArrowLeft size={15} /> All Projects
             </button>
-          ))}
-        </nav>
 
-        <div className="sidebar-bottom">
-          <div className="help-card">
-            <div className="help-icon"><CircleHelp size={19} /></div>
-            <strong>Keep your data documented</strong>
-            <p>Clear documentation helps teams build better systems together.</p>
-          </div>
-          <div className="repo-label">
-            <GitBranch size={17} />
-            <div>
-              <strong>GitHub Repository</strong>
-              <span>entity-documentation-demo</span>
+            <div className="workspace-label">CURRENT PROJECT</div>
+            <div className="workspace-menu">
+              <button
+                type="button"
+                className="workspace-switch"
+                onClick={() => setShowProjectMenu((open) => !open)}
+                aria-expanded={showProjectMenu}
+              >
+                <div className="workspace-avatar">
+                  {selectedProject.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="workspace-copy">
+                  <strong>{selectedProject.name}</strong>
+                  <span>{entities.length} entities · {relationships.length} links</span>
+                </div>
+                <ChevronDown size={16} className={showProjectMenu ? 'chevron-open' : ''} />
+              </button>
+
+              {showProjectMenu && (
+                <>
+                  <div className="workspace-backdrop" onClick={() => setShowProjectMenu(false)} />
+                  <div className="workspace-dropdown">
+                    <div className="workspace-dropdown-title">สลับโปรเจกต์</div>
+
+                    <div className="workspace-dropdown-list">
+                      {projects.map((project) => (
+                        <button
+                          type="button"
+                          key={project.id}
+                          className={`workspace-option ${project.id === selectedProjectId ? 'active' : ''}`}
+                          onClick={() => {
+                            openProject(project)
+                            setShowProjectMenu(false)
+                          }}
+                        >
+                          <span className="workspace-option-avatar">
+                            {project.name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="workspace-option-copy">
+                            <strong>{project.name}</strong>
+                            <small>{project.entities.length} entities</small>
+                          </span>
+                          {project.id === selectedProjectId && <CheckCircle2 size={15} />}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="workspace-dropdown-divider" />
+
+                    <button
+                      type="button"
+                      className="workspace-action"
+                      onClick={() => openProjectModal(selectedProject)}
+                    >
+                      <Pencil size={15} /> แก้ไขโปรเจกต์นี้
+                    </button>
+                    <button
+                      type="button"
+                      className="workspace-action"
+                      onClick={() => openProjectModal()}
+                    >
+                      <Plus size={15} /> สร้างโปรเจกต์ใหม่
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-            <CheckCircle2 size={16} className="repo-check" />
-          </div>
-        </div>
+
+            <div className="nav-label">PROJECT MENU</div>
+            <nav className="navigation">
+              {projectNavItems.map(({ label, icon: Icon }) => (
+                <button
+                  key={label}
+                  className={`nav-item ${activePage === label ? 'active' : ''}`}
+                  onClick={() => setActivePage(label)}
+                >
+                  <Icon size={18} />
+                  <span>{label}</span>
+                  {label === 'Entities' && <span className="nav-count">{entities.length}</span>}
+                </button>
+              ))}
+            </nav>
+          </>
+        )}
       </aside>
 
       <main className="main-content">
         <header className="topbar">
           <div className="breadcrumbs">
-            <span>Workspace</span><span className="crumb-separator">/</span>
-            <strong>{activePage}</strong>
+            {selectedProject ? (
+              <>
+                <button type="button" className="crumb-link" onClick={closeProject}>Projects</button>
+                <span className="crumb-separator">/</span>
+                <span>{selectedProject.name}</span>
+                <span className="crumb-separator">/</span>
+                <strong>{activePage}</strong>
+              </>
+            ) : (
+              <strong>Projects</strong>
+            )}
           </div>
           <div className="topbar-actions">
             <span className="status-pill">
@@ -592,9 +1047,9 @@ function App() {
             </span>
             <button
               className="text-button"
-              onClick={handleGoogleLogin}
+              onClick={() => handleLogout()}
             >
-              Continue with Google
+              Logout
             </button>
             <button className="icon-button" aria-label="Settings"><Settings2 size={18} /></button>
             <div className="avatar">P</div>
@@ -602,158 +1057,106 @@ function App() {
         </header>
 
         <section className="page-content">
-          <div className="welcome-row">
-            <div>
-              <div className="eyebrow"><span className="eyebrow-dot" /> DATABASE WORKSPACE</div>
-              <h1>{activePage === 'Overview' ? 'Good afternoon!' : activePage}</h1>
-              <p className="welcome-description">
-                Explore your database structure, entities, and relationships in one place.
-              </p>
-            </div>
-            <div className="welcome-actions">
-              <button
-                className="secondary-button"
-                onClick={() => setShowProjectModal(true)}
-              >
-                <Plus size={17} /> New Project
-              </button>
-
-              <button
-                className="primary-button"
-                onClick={() => setActivePage('Entities')}
-              >
-                <Plus size={17} /> Explore entities <ArrowRight size={16} />
-              </button>
-            </div>
-          </div>
-
-          <div className="notice-banner">
-            <div className="notice-icon"><ShieldCheck size={20} /></div>
-            <div>
-              <strong>Documentation workspace</strong>
-              <p>This version uses sample data. Verify field definitions against your actual database schema.</p>
-            </div>
-            <span className="notice-tag">DEMO</span>
-          </div>
-
-          <div className="stats-grid">
-            <StatCard icon={Database} label="Total Entities" value={entities.length} note="Database tables" color="blue" />
-            <StatCard icon={Table2} label="Total Fields" value={allFields.length} note="Across all entities" color="green" />
-            <StatCard icon={Link2} label="Relationships" value={relationships.length} note="Documented links" color="purple" />
-            <StatCard icon={Activity} label="Documentation" value="Draft" note="Ready for review" color="orange" />
-          </div>
-          {activePage === 'Projects' && (
-            <section className="panel">
-              <div className="panel-heading">
+          {!selectedProject && (
+            <>
+              <div className="welcome-row">
                 <div>
-                  <h2>
-                    <FolderKanban size={19} /> My Projects
-                  </h2>
-                  <p>จัดการโปรเจกต์เอกสารฐานข้อมูลของคุณ</p>
-                </div>
-
-                <button
-                  className="primary-button"
-                  onClick={() => setShowProjectModal(true)}
-                >
-                  <Plus size={17} /> New Project
-                </button>
-              </div>
-
-              {projects.length === 0 ? (
-                <div className="empty-state">
-                  ยังไม่มีโปรเจกต์ กด New Project เพื่อสร้างโปรเจกต์แรก
-                </div>
-              ) : (
-                <div className="entity-list">
-                  {projects.map((project) => (
-                    <div
-                      className="entity-row project-clickable"
-                      key={project.id}
-                      onClick={() => {
-                        setSelectedProject(project)
-                        setActivePage('Project Detail')
-                      }}
-                    >
-                      <div className="entity-icon blue">
-                        <FolderKanban size={19} />
-                      </div>
-
-                      <div className="entity-row-copy">
-                        <strong>{project.name}</strong>
-                        <span>
-                          {project.description || 'ไม่มีรายละเอียด'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
-          {activePage === 'Project Detail' && selectedProject && (
-            <section className="panel">
-              <button
-                className="secondary-button"
-                onClick={() => setActivePage('Projects')}
-              >
-                ← กลับไป Projects
-              </button>
-
-              <div className="panel-heading" style={{ marginTop: 24 }}>
-                <div>
-                  <h2>
-                    <FolderKanban size={19} />
-                    {selectedProject.name}
-                  </h2>
-                  <p>
-                    {selectedProject.description || 'ไม่มีรายละเอียดโปรเจกต์'}
+                  <div className="eyebrow"><span className="eyebrow-dot" /> PROJECTS</div>
+                  <h1>My Projects</h1>
+                  <p className="welcome-description">
+                    เลือกโปรเจกต์เพื่อเข้าไปจัดการ Entity, Relationship และ ER Diagram
                   </p>
                 </div>
               </div>
 
-              <div className="project-feature-grid">
-                {[
-                  {
-                    label: 'Entities',
-                    description: 'จัดการตารางและรายละเอียดข้อมูล',
-                    icon: Database,
-                  },
-                  {
-                    label: 'Relationships',
-                    description: 'จัดการความสัมพันธ์ระหว่างตาราง',
-                    icon: Link2,
-                  },
-                  {
-                    label: 'ER Diagram',
-                    description: 'ดูแผนภาพโครงสร้างฐานข้อมูล',
-                    icon: GitBranch,
-                  },
-                  {
-                    label: 'Data Dictionary',
-                    description: 'ดูคำอธิบายตารางและคอลัมน์',
-                    icon: BookOpen,
-                  },
-                ].map((item) => {
-                  const Icon = item.icon
+              <div className="project-grid">
+                {projects.map((project) => (
+                  <div
+                    className="project-card"
+                    key={project.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openProject(project)}
+                    onKeyDown={(event) => event.key === 'Enter' && openProject(project)}
+                  >
+                    <div className="project-card-icon"><FolderKanban size={26} /></div>
+                    <strong>{project.name}</strong>
+                    <p>{project.description || 'ไม่มีรายละเอียด'}</p>
+                    <div className="project-card-meta">
+                      <span>{project.entities.length} entities</span>
+                      <span>{project.relationships.length} links</span>
+                    </div>
 
-                  return (
-                    <button
-                      type="button"
-                      className="project-feature-card"
-                      key={item.label}
-                      onClick={() => setActivePage(item.label)}
-                    >
-                      <Icon size={22} />
-                      <strong>{item.label}</strong>
-                      <span>{item.description}</span>
-                      <span>เปิดดู →</span>
-                    </button>
-                  )
-                })}
+                    <div className="project-card-actions">
+                      <button
+                        type="button"
+                        className="project-card-edit"
+                        title="แก้ไขโปรเจกต์"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openProjectModal(project)
+                        }}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        className="project-card-delete"
+                        title="ลบโปรเจกต์"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleDeleteProject(project)
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  className="project-card project-card-new"
+                  onClick={() => openProjectModal()}
+                >
+                  <Plus size={26} />
+                  <strong>สร้างโปรเจกต์ใหม่</strong>
+                </button>
               </div>
-            </section>
+            </>
           )}
+          {selectedProject && (
+            <>
+              <div className="welcome-row">
+                <div>
+                  <h1>{activePage === 'Overview' ? selectedProject.name : activePage}</h1>
+                  <p className="welcome-description">
+                    {selectedProject.description || 'Explore your database structure, entities, and relationships.'}
+                  </p>
+                </div>
+              </div>
+
+              {activePage === 'Overview' && (
+                <div className="notice-banner">
+                  <div className="notice-icon"><ShieldCheck size={20} /></div>
+                  <div>
+                    <strong>Documentation workspace</strong>
+                    <p>This version uses sample data. Verify field definitions against your actual database schema.</p>
+                  </div>
+                  <span className="notice-tag">DEMO</span>
+                </div>
+              )}
+              {activePage === 'Overview' && (
+                <div className="stats-grid">
+                  <StatCard icon={Database} label="Total Entities" value={entities.length} note="Database tables" color="blue" />
+                  <StatCard icon={Table2} label="Total Fields" value={allFields.length} note="Across all entities" color="green" />
+                  <StatCard icon={Link2} label="Relationships" value={relationships.length} note="Documented links" color="purple" />
+                  <StatCard icon={Activity} label="Documentation" value="Draft" note="Ready for review" color="orange" />
+                </div>
+              )}
+            </>
+          )}
+
           {activePage === 'Overview' && (
             <div className="content-grid">
               <section className="panel entity-panel">
@@ -762,23 +1165,17 @@ function App() {
                     <h2><Database size={19} /> Entity Catalog</h2>
                     <p>Browse the main tables in your system</p>
                   </div>
-                  <button className="text-button" onClick={() => setActivePage('Entities')}>View all <ArrowRight size={15} /></button>
                 </div>
                 <div className="entity-list">
                   {entities.map((entity) => (
-                    <button
-                      key={entity.name}
-                      className="entity-row"
-                      onClick={() => { setSelectedEntity(entity.name); setActivePage('Entities') }}
-                    >
+                    <div key={entity.name} className="entity-row">
                       <div className={`entity-icon ${entity.color}`}><entity.icon size={19} /></div>
                       <div className="entity-row-copy">
                         <strong>{entity.name}</strong>
                         <span>{entity.description}</span>
                       </div>
                       <span className="field-count">{entity.fields.length} fields</span>
-                      <ArrowRight size={16} className="row-arrow" />
-                    </button>
+                    </div>
                   ))}
                 </div>
               </section>
@@ -790,21 +1187,20 @@ function App() {
                     <p>Jump into documentation</p>
                   </div>
                 </div>
-                <button className="quick-link" onClick={() => setActivePage('ER Diagram')}>
+
+                <div className="quick-link">
                   <span className="quick-icon purple"><GitBranch size={18} /></span>
                   <span><strong>ER Diagram</strong><small>Explore table relationships</small></span>
-                  <ArrowRight size={16} />
-                </button>
-                <button className="quick-link" onClick={() => setActivePage('Data Dictionary')}>
+                </div>
+                <div className="quick-link">
                   <span className="quick-icon green"><BookOpen size={18} /></span>
                   <span><strong>Data Dictionary</strong><small>Browse every field</small></span>
-                  <ArrowRight size={16} />
-                </button>
-                <button className="quick-link" onClick={() => setActivePage('Relationships')}>
+                </div>
+                <div className="quick-link">
                   <span className="quick-icon blue"><Link2 size={18} /></span>
                   <span><strong>Relationships</strong><small>Understand data connections</small></span>
-                  <ArrowRight size={16} />
-                </button>
+                </div>
+
                 <div className="review-note">
                   <ArrowDownRight size={17} />
                   <span>Keep definitions clear, consistent, and up to date.</span>
@@ -830,9 +1226,7 @@ function App() {
                   </button>
                 </div>
 
-                <div className="result-count">
-                  {filteredEntities.length} results
-                </div>
+
                 <div className="search-box">
                   <Search size={17} />
                   <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search entities or fields..." />
@@ -849,108 +1243,125 @@ function App() {
                 </div>
               </section>
               <section className="panel detail-panel">
-                <div className="detail-header">
-                  <div className={`entity-icon large ${activeEntity.color}`}><activeEntity.icon size={22} /></div>
-                  <div><div className="eyebrow">ENTITY DETAILS</div><h2>{activeEntity.name}</h2><p>{activeEntity.description}</p></div>
-                </div>
-                <div className="entity-actions">
-                  <button
-                    className="secondary-button"
-                    onClick={() => openEntityModal(activeEntity)}
-                  >
-                    Edit Entity
-                  </button>
+                {entities.length === 0 ? (
+                  <div className="empty-state">
+                    <Database size={30} />
+                    <p>No entities yet</p>
+                    <span>Create a new Entity to start documenting your database.</span>
+                    <button
+                      className="primary-button"
+                      onClick={() => openEntityModal()}
+                    >
+                      <Plus size={17} /> New Entity
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="detail-header">
+                      <div className={`entity-icon large ${activeEntity.color}`}><activeEntity.icon size={22} /></div>
+                      <div><div className="eyebrow">ENTITY DETAILS</div><h2>{activeEntity.name}</h2><p>{activeEntity.description}</p></div>
+                    </div>
 
-                  <button
-                    className="secondary-button"
-                    onClick={() => handleDeleteEntity(activeEntity.name)}
-                  >
-                    Delete
-                  </button>
-                </div>
-                <div className="entity-actions">
-                  <button
-                    className="primary-button"
-                    onClick={() => openColumnModal()}
-                  >
-                    <Plus size={17} /> Add Column
-                  </button>
-                </div>
+                    <div className="entity-toolbar">
+                      <div className="search-box column-search">
+                        <Search size={17} />
+                        <input
+                          value={columnSearch}
+                          onChange={(event) => setColumnSearch(event.target.value)}
+                          placeholder="Search column name or description..."
+                        />
+                      </div>
 
-                
-<div className="search-box dictionary-search">
-  <Search size={17} />
-  <input
-    value={columnSearch}
-    onChange={(event) => setColumnSearch(event.target.value)}
-    placeholder="Search column name or description..."
-  />
-</div>
+                      <select
+                        className="filter-select"
+                        aria-label="Filter by type"
+                        value={columnTypeFilter}
+                        onChange={(event) => setColumnTypeFilter(event.target.value)}
+                      >
+                        <option value="all">All Types</option>
+                        {[...new Set((activeEntity?.fields ?? []).map((field) => field.type))].map((type) => (
+                          <option key={type} value={type}>{type}</option>
+                        ))}
+                      </select>
 
-<div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-  <label htmlFor="column-type-filter">Filter by Type:</label>
-  <select
-    id="column-type-filter"
-    value={columnTypeFilter}
-    onChange={(event) => setColumnTypeFilter(event.target.value)}
-  >
-    <option value="all">All Types</option>
-    {[...new Set((activeEntity?.fields ?? []).map((field) => field.type))].map((type) => (
-      <option key={type} value={type}>{type}</option>
-    ))}
-  </select>
+                      <span className="result-count">{filteredActiveFields.length} columns</span>
 
-  <span>{filteredActiveFields.length} columns</span>
-</div>
+                      <div className="toolbar-actions">
+                        <button className="secondary-button" onClick={() => openEntityModal(activeEntity)}>
+                          Edit Entity
+                        </button>
+                        <button className="secondary-button danger-button" onClick={() => handleDeleteEntity(activeEntity.name)}>
+                          Delete
+                        </button>
+                        <button className="primary-button" onClick={() => openColumnModal()}>
+                          <Plus size={17} /> Add Column
+                        </button>
+                      </div>
+                    </div>
 
-                <div className="field-table-wrap">
-                  <table className="field-table">
-                    <thead>
-                      <tr>
-                        <th>Field</th>
-                        <th>Type</th>
-                        <th>Key</th>
-                        <th>Description</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
 
-                    <tbody>
-                      {filteredActiveFields.map((field) => (
-                        <tr key={field.name}>
-                          <td className="field-name">{field.name}</td>
-                          <td><span className="type-tag">{field.type}</span></td>
-                          <td>
-                            {field.key && (
-                              <span className={`key-tag ${field.key.toLowerCase()}`}>
-                                {field.key}
-                              </span>
-                            )}
-                          </td>
-                          <td>{field.description}</td>
-                          <td>
-                            <button
-                              className="secondary-button"
-                              onClick={() => openColumnModal(field)}
-                            >
-                              Edit
-                            </button>
 
-                            <button
-                              className="secondary-button"
-                              onClick={() => handleDeleteColumn(field.name)}
-                            >
-                              Delete
-                            </button>
+                    <div className="field-table-wrap">
+                      <table className="field-table">
+                        <thead>
+                          <tr>
+                            <th>Field</th>
+                            <th>Type</th>
+                            <th>Key</th>
+                            <th>Null</th>
+                            <th>Default</th>
+                            <th>Description</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
 
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
+                        <tbody>
+                          {filteredActiveFields.map((field) => (
+                            <tr key={field.name}>
+                              <td className="field-name">{field.name}</td>
+                              <td><span className="type-tag">{field.type}</span></td>
+                              <td>
+                                {field.key && (
+                                  <span className={`key-tag ${field.key.toLowerCase()}`}>
+                                    {field.key}
+                                  </span>
+                                )}
+                              </td>
 
-                  </table>
-                </div>
-                <div className="detail-footer"><span><Table2 size={15} /> {activeEntity.fields.length} fields documented</span><span className="draft-label">Draft schema</span></div>
+                              <td>{field.nullable === false ? 'NOT NULL' : 'NULL'}</td>
+                              <td>{field.defaultValue || '-'}</td>
+                              <td>{field.description}</td>
+
+                              <td>
+                                <button
+                                  className="secondary-button"
+                                  onClick={() => openColumnModal(field)}
+                                >
+                                  Edit
+                                </button>
+
+                                <button
+                                  className="secondary-button"
+                                  onClick={() => handleDeleteColumn(field.name)}
+                                >
+                                  Delete
+                                </button>
+
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+
+                      </table>
+                    </div>
+                    <div className="detail-footer">
+                      <span>
+                        <Table2 size={15} /> {activeEntity.fields.length} fields documented
+                      </span>
+                      <span className="draft-label">Draft schema</span>
+                    </div>
+                  </>
+                )}
               </section>
             </div>
           )}
@@ -980,19 +1391,97 @@ function App() {
           {activePage === 'Relationships' && (
             <section className="panel">
               <div className="panel-heading">
-                <div><h2><Link2 size={19} /> Relationship Catalog</h2><p>Documented links between database entities</p></div>
-                <span className="result-count">{relationships.length} relationships</span>
+                <div>
+                  <h2>
+                    <Link2 size={19} /> Relationship Catalog
+                  </h2>
+                  <p>
+                    Manage connections between database entities
+                  </p>
+                </div>
+
+                <button
+                  className="primary-button"
+                  onClick={() => openRelationshipModal()}
+                >
+                  <Plus size={16} />
+                  Add Relationship
+                </button>
               </div>
+
               <div className="relationship-list">
-                {relationships.map((rel, index) => (
-                  <div className="relationship-row" key={`${rel.label}-${index}`}>
-                    <span className={`entity-badge ${rel.color}`}>{rel.from}</span>
-                    <ArrowRight size={18} className="relationship-arrow" />
-                    <span className="entity-badge purple">{rel.to}</span>
-                    <span className="relationship-label">{rel.label}</span>
-                    <p>{rel.detail}</p>
+                {relationships.map((rel) => (
+                  <div
+                    className="relationship-row"
+                    key={rel.id}
+                  >
+                    <div className="relationship-content">
+                      <div className="relationship-entities">
+                        <span className="entity-badge blue">
+                          {rel.fromEntity}
+                        </span>
+
+                        <div className="relationship-connection">
+                          <ArrowRight size={18} />
+
+                          <span>{rel.type}</span>
+                        </div>
+
+                        <span className="entity-badge purple">
+                          {rel.toEntity}
+                        </span>
+                      </div>
+
+                      <div className="relationship-fields">
+                        <code>
+                          {rel.fromEntity}.{rel.fromField}
+                        </code>
+
+                        <ArrowRight size={14} />
+
+                        <code>
+                          {rel.toEntity}.{rel.toField}
+                        </code>
+                      </div>
+
+                      <strong className="relationship-label">
+                        {rel.label || 'No label'}
+                      </strong>
+
+                      <p>{rel.detail || 'No description'}</p>
+                    </div>
+
+                    <div className="relationship-actions">
+                      <button
+                        type="button"
+                        title="Edit Relationship"
+                        onClick={() => openRelationshipModal(rel)}
+                      >
+                        <Pencil size={16} />
+                      </button>
+
+                      <button
+                        type="button"
+                        title="Delete Relationship"
+                        onClick={() =>
+                          handleDeleteRelationship(rel.id)
+                        }
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 ))}
+
+                {relationships.length === 0 && (
+                  <div className="empty-state">
+                    <Link2 size={30} />
+                    <p>No relationships yet</p>
+                    <span>
+                      Click Add Relationship to create your first connection.
+                    </span>
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -1003,69 +1492,88 @@ function App() {
               <div className="panel-heading">
                 <div>
                   <h2><GitBranch size={19} /> Entity Relationship Diagram</h2>
-                  <p>Relationships between USERS, POSTS and FOLLOWS</p>
+                  <p>Diagram updates automatically from your entities and relationships</p>
                 </div>
-                <span className="result-count">3 entities · 3 links</span>
+                <span className="result-count">
+                  {entities.length} entities · {diagram.edges.length} links
+                </span>
               </div>
 
-              <div className="diagram-canvas">
-                <div className="diagram-grid connected-diagram">
-                  <div className="diagram-node node-users">
-                    <div className="diagram-entity-header">
-                      <Users size={18} />
-                      <strong>USERS</strong>
-                      <span>4 fields</span>
-                    </div>
-                    <div className="diagram-field"><strong>🔑 id</strong><small>int · PK</small></div>
-                    <div className="diagram-field"><strong>username</strong><small>string</small></div>
-                    <div className="diagram-field"><strong>role</strong><small>string</small></div>
-                    <div className="diagram-field"><strong>created_at</strong><small>datetime</small></div>
-                  </div>
+              {entities.length === 0 ? (
+                <div className="empty-state">
+                  <GitBranch size={30} />
+                  <p>No entities to display</p>
+                  <span>Create an entity first, then it will appear here.</span>
+                </div>
+              ) : (
+                <div className="diagram-canvas">
+                  <div className="er-board" style={{ width: diagram.width, height: diagram.height }}>
+                    <svg className="er-lines" width={diagram.width} height={diagram.height}>
+                      {diagram.edges.map((edge) => {
+                        const text = edge.label || ''
+                        const pillW = text.length * 6.5 + 18
+                        return (
+                          <g key={edge.id}>
+                            <path d={edge.d} stroke={edge.color} strokeWidth="2" fill="none" />
+                            <circle cx={edge.ax} cy={edge.ay} r="3.5" fill={edge.color} />
+                            <circle cx={edge.bx} cy={edge.by} r="3.5" fill={edge.color} />
 
-                  <svg className="diagram-lines" viewBox="0 0 800 460" preserveAspectRatio="none" aria-label="Relationship lines">
-                    <defs>
-                      <marker id="arrow-posts" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                        <path d="M0,0 L6,3 L0,6 Z" fill="#20a98a" />
-                      </marker>
-                      <marker id="arrow-follows" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                        <path d="M0,0 L6,3 L0,6 Z" fill="#8b69e8" />
-                      </marker>
-                    </defs>
-                    <path d="M250 90 C350 90 350 90 450 90" stroke="#20a98a" strokeWidth="2.5" fill="none" markerEnd="url(#arrow-posts)" />
-                    <path d="M130 190 C130 300 220 300 300 300" stroke="#8b69e8" strokeWidth="2.5" fill="none" markerEnd="url(#arrow-follows)" />
-                    <path d="M250 350 C350 350 350 350 450 350" stroke="#5689ed" strokeWidth="2.5" fill="none" />
-                    <rect x="320" y="68" width="70" height="24" rx="12" fill="#e4f8f1" />
-                    <text x="355" y="84" fontSize="11" textAnchor="middle" fill="#16866e">creates</text>
-                    <rect x="145" y="235" width="80" height="24" rx="12" fill="#f0eaff" />
-                    <text x="185" y="251" fontSize="11" textAnchor="middle" fill="#7958d2">following</text>
-                    <rect x="320" y="328" width="70" height="24" rx="12" fill="#eaf1ff" />
-                    <text x="355" y="344" fontSize="11" textAnchor="middle" fill="#4778d2">followed</text>
-                  </svg>
+                            <text x={edge.ax + edge.dirA * 14} y={edge.ay - 6} fontSize="11" fontWeight="700"
+                              textAnchor="middle" fill={edge.color}>{edge.fromCard}</text>
+                            <text x={edge.bx + edge.dirB * 14} y={edge.by - 6} fontSize="11" fontWeight="700"
+                              textAnchor="middle" fill={edge.color}>{edge.toCard}</text>
 
-                  <div className="diagram-node node-posts">
-                    <div className="diagram-entity-header">
-                      <FileText size={18} />
-                      <strong>POSTS</strong>
-                      <span>6 fields</span>
-                    </div>
-                    <div className="diagram-field"><strong>🔑 id</strong><small>int · PK</small></div>
-                    <div className="diagram-field"><strong>title</strong><small>string</small></div>
-                    <div className="diagram-field"><strong>🔗 user_id</strong><small>int · FK</small></div>
-                    <div className="diagram-field"><strong>status</strong><small>string</small></div>
-                  </div>
+                            {text && (
+                              <>
+                                <rect x={edge.mx - pillW / 2} y={edge.my - 11} width={pillW} height="22"
+                                  rx="11" fill="#fff" stroke={edge.color} strokeWidth="1" />
+                                <text x={edge.mx} y={edge.my + 4} fontSize="10.5" textAnchor="middle"
+                                  fill={edge.color}>{text}</text>
+                              </>
+                            )}
+                          </g>
+                        )
+                      })}
+                    </svg>
 
-                  <div className="diagram-node node-follows">
-                    <div className="diagram-entity-header">
-                      <GitBranch size={18} />
-                      <strong>FOLLOWS</strong>
-                      <span>3 fields</span>
-                    </div>
-                    <div className="diagram-field"><strong>🔗 following_user_id</strong><small>int · FK</small></div>
-                    <div className="diagram-field"><strong>🔗 followed_user_id</strong><small>int · FK</small></div>
-                    <div className="diagram-field"><strong>created_at</strong><small>datetime</small></div>
+                    {diagram.nodes.map(({ entity, x, y }) => {
+                      const Icon = entity.icon
+                      const hex = COLOR_HEX[entity.color] ?? COLOR_HEX.blue
+                      const tint = COLOR_TINT[entity.color] ?? COLOR_TINT.blue
+                      return (
+                        <div
+                          key={entity.name}
+                          className="er-node"
+                          style={{
+                            left: x,
+                            top: y,
+                            width: NODE_W,
+                            boxShadow: `0 0 0 1.5px ${hex}, 0 8px 22px #303b5a12`,
+                          }}
+                        >
+                          <div className="er-node-header" style={{ background: tint, color: hex }}>
+                            <Icon size={18} />
+                            <strong>{entity.name}</strong>
+                            <span>{entity.fields.length} fields</span>
+                          </div>
+
+                          {entity.fields.length === 0 && <div className="er-field empty">No columns yet</div>}
+
+                          {entity.fields.map((field) => (
+                            <div className="er-field" key={field.name}>
+                              <span className="er-field-icon">
+                                {field.key === 'PK' ? '🔑' : field.key === 'FK' ? '🔗' : '•'}
+                              </span>
+                              <strong title={field.name}>{field.name}</strong>
+                              <small>{field.type}{field.key ? ` · ${field.key}` : ''}</small>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
-              </div>
+              )}
               <p className="diagram-footnote">
                 Conceptual relationship view. Confirm the foreign keys and cardinality against the actual database schema.
               </p>
@@ -1084,24 +1592,81 @@ function App() {
           )}
         </section>
 
+
+
+
         <footer className="app-footer">
           <span>Entity Portal <span className="footer-separator">·</span> Database Documentation</span>
           <span><span className="footer-status-dot" /> Local demo workspace</span>
         </footer>
       </main>
-      {showProjectModal && (
+
+      {showEntityModal && (
         <div className="project-modal-overlay">
-          <form className="project-modal" onSubmit={handleCreateProject}>
+          <form className="project-modal" onSubmit={handleSaveEntity}>
             <div className="project-modal-header">
               <div>
-                <h2>สร้างโปรเจกต์ใหม่</h2>
-                <p>เพิ่มพื้นที่สำหรับจัดเก็บเอกสารฐานข้อมูล</p>
+                <h2>{editingEntity ? 'แก้ไข Entity' : 'สร้าง Entity ใหม่'}</h2>
+                <p>กำหนดชื่อและรายละเอียดของ Entity</p>
               </div>
-
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setShowProjectModal(false)}
+                onClick={closeEntityModal}
+              >
+                ×
+              </button>
+            </div>
+
+            <label htmlFor="entity-name">ชื่อ Entity *</label>
+            <input
+              id="entity-name"
+              value={entityName}
+              onChange={(event) => setEntityName(event.target.value)}
+              placeholder="เช่น CUSTOMERS"
+              required
+            />
+
+            <label htmlFor="entity-description">รายละเอียด</label>
+            <textarea
+              id="entity-description"
+              value={entityDescription}
+              onChange={(event) => setEntityDescription(event.target.value)}
+              placeholder="อธิบายข้อมูลของ Entity นี้"
+              rows={3}
+            />
+
+            <div className="project-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeEntityModal}
+              >
+                ยกเลิก
+              </button>
+              <button type="submit" className="primary-button">
+                <Plus size={17} />
+                {editingEntity ? 'บันทึกการแก้ไข' : 'สร้าง Entity'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+
+
+      {showProjectModal && (
+        <div className="project-modal-overlay">
+          <form className="project-modal" onSubmit={handleSaveProject}>
+            <div className="project-modal-header">
+              <div>
+                <h2>{editingProject ? 'แก้ไขโปรเจกต์' : 'สร้างโปรเจกต์ใหม่'}</h2>
+                <p>เพิ่มพื้นที่สำหรับจัดเก็บเอกสารฐานข้อมูล</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={closeProjectModal}
                 aria-label="ปิด"
               >
                 ×
@@ -1128,21 +1693,17 @@ function App() {
             />
 
             <div className="project-modal-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setShowProjectModal(false)}
-              >
+              <button type="button" className="secondary-button" onClick={closeProjectModal}>
                 ยกเลิก
               </button>
-
               <button type="submit" className="primary-button">
-                <Plus size={17} /> สร้างโปรเจกต์
+                <Plus size={17} /> {editingProject ? 'บันทึกการแก้ไข' : 'สร้างโปรเจกต์'}
               </button>
             </div>
           </form>
         </div>
       )}
+
 
       {showColumnModal && (
         <div className="project-modal-overlay">
@@ -1152,11 +1713,10 @@ function App() {
                 <h2>{editingColumn ? 'แก้ไข Column' : 'เพิ่ม Column'}</h2>
                 <p>กำหนดรายละเอียดของ Column ใน {activeEntity?.name}</p>
               </div>
-
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setShowColumnModal(false)}
+                onClick={closeColumnModal}
               >
                 ×
               </button>
@@ -1230,11 +1790,10 @@ function App() {
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => setShowColumnModal(false)}
+                onClick={closeColumnModal}
               >
                 ยกเลิก
               </button>
-
               <button type="submit" className="primary-button">
                 <Plus size={17} />
                 {editingColumn ? 'บันทึกการแก้ไข' : 'เพิ่ม Column'}
@@ -1243,7 +1802,203 @@ function App() {
           </form>
         </div>
       )}
+      {showRelationshipModal && (
+        <div className="project-modal-overlay">
+          <form
+            className="project-modal relationship-modal"
+            onSubmit={handleSaveRelationship}
+          >
+            <div className="project-modal-header">
+              <div>
+                <h2>{editingRelationship ? 'Edit Relationship' : 'Add Relationship'}</h2>
+                <p>Define how two entities are connected.</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setShowRelationshipModal(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
 
+            <div className="form-group">
+              <label>From Entity</label>
+
+              <select
+                value={relationshipFromEntity}
+                onChange={(event) => {
+                  const entityName = event.target.value
+                  const entity = entities.find(
+                    (item) => item.name === entityName
+                  )
+
+                  setRelationshipFromEntity(entityName)
+                  setRelationshipFromField(
+                    entity?.fields[0]?.name || ''
+                  )
+                }}
+                required
+              >
+                {entities.map((entity) => (
+                  <option
+                    key={entity.name}
+                    value={entity.name}
+                  >
+                    {entity.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>From Column</label>
+
+              <select
+                value={relationshipFromField}
+                onChange={(event) =>
+                  setRelationshipFromField(event.target.value)
+                }
+                required
+              >
+                {(
+                  entities.find(
+                    (item) =>
+                      item.name === relationshipFromEntity
+                  )?.fields || []
+                ).map((field) => (
+                  <option
+                    key={field.name}
+                    value={field.name}
+                  >
+                    {field.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relationship-form-divider">
+              <ArrowRight size={20} />
+              <span>Connect to</span>
+            </div>
+
+            <div className="form-group">
+              <label>To Entity</label>
+
+              <select
+                value={relationshipToEntity}
+                onChange={(event) => {
+                  const entityName = event.target.value
+                  const entity = entities.find(
+                    (item) => item.name === entityName
+                  )
+
+                  setRelationshipToEntity(entityName)
+                  setRelationshipToField(
+                    entity?.fields[0]?.name || ''
+                  )
+                }}
+                required
+              >
+                {entities.map((entity) => (
+                  <option
+                    key={entity.name}
+                    value={entity.name}
+                  >
+                    {entity.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>To Column</label>
+
+              <select
+                value={relationshipToField}
+                onChange={(event) =>
+                  setRelationshipToField(event.target.value)
+                }
+                required
+              >
+                {(
+                  entities.find(
+                    (item) =>
+                      item.name === relationshipToEntity
+                  )?.fields || []
+                ).map((field) => (
+                  <option
+                    key={field.name}
+                    value={field.name}
+                  >
+                    {field.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Relationship Type</label>
+
+              <select
+                value={relationshipType}
+                onChange={(event) =>
+                  setRelationshipType(event.target.value)
+                }
+              >
+                <option value="1:1">One to One (1:1)</option>
+                <option value="1:N">One to Many (1:N)</option>
+                <option value="N:M">Many to Many (N:M)</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Relationship Name</label>
+
+              <input
+                type="text"
+                value={relationshipLabel}
+                onChange={(event) =>
+                  setRelationshipLabel(event.target.value)
+                }
+                placeholder="e.g. creates, belongs to"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Description</label>
+
+              <textarea
+                value={relationshipDetail}
+                onChange={(event) =>
+                  setRelationshipDetail(event.target.value)
+                }
+                placeholder="Describe this relationship..."
+                rows={3}
+              />
+            </div>
+
+            <div className="project-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() =>
+                  setShowRelationshipModal(false)
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                className="primary-button"
+              >
+                {editingRelationship ? 'Save Changes' : 'Add Relationship'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }
@@ -1258,23 +2013,4 @@ function StatCard({ icon: Icon, label, value, note, color }) {
     </div>
   )
 }
-
-function DiagramEntity({ entity }) {
-  const Icon = entity.icon
-  return (
-    <div className={`diagram-entity ${entity.color}`}>
-      <div className="diagram-entity-header"><Icon size={18} /><strong>{entity.name}</strong><span>{entity.fields.length} fields</span></div>
-      {entity.fields.slice(0, 4).map((field) => (
-        <div className="diagram-field" key={field.name}>
-          <span>{field.key === 'PK' ? '🔑' : field.key === 'FK' ? '🔗' : '•'}</span>
-          <strong>{field.name}</strong>
-          <small>{field.type}</small>
-          {field.key && <span className={`key-tag ${field.key.toLowerCase()}`}>{field.key}</span>}
-        </div>
-      ))}
-      {entity.fields.length > 4 && <div className="diagram-more">+{entity.fields.length - 4} more fields</div>}
-    </div>
-  )
-}
-
 export default App

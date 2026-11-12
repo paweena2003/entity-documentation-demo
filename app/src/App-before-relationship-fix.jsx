@@ -1,0 +1,1704 @@
+import { useMemo, useState, useEffect } from 'react'
+import { supabase } from './supabase'
+import {
+  Activity,
+  ArrowDownRight,
+  FolderKanban,
+  ArrowRight,
+  BookOpen,
+  CheckCircle2,
+  ChevronDown,
+  CircleHelp,
+  Clock3,
+  Database,
+  FileText,
+  GitBranch,
+  LayoutDashboard,
+  Link2,
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  X,
+  Settings2,
+  ShieldCheck,
+  Table2,
+  Users,
+} from 'lucide-react'
+import './App.css'
+
+const initialEntities = [
+  {
+    name: 'USERS',
+    description: 'ข้อมูลผู้ใช้และบัญชีของระบบ',
+    color: 'blue',
+    icon: Users,
+    fields: [
+      { name: 'id', type: 'int', key: 'PK', description: 'รหัสผู้ใช้' },
+      { name: 'username', type: 'string', key: '', description: 'ชื่อผู้ใช้' },
+      { name: 'role', type: 'string', key: '', description: 'บทบาทผู้ใช้' },
+      { name: 'created_at', type: 'datetime', key: '', description: 'วันที่สร้างบัญชี' },
+    ],
+  },
+  {
+    name: 'POSTS',
+    description: 'ข้อมูลโพสต์และเนื้อหาที่ผู้ใช้สร้าง',
+    color: 'green',
+    icon: FileText,
+    fields: [
+      { name: 'id', type: 'int', key: 'PK', description: 'รหัสโพสต์' },
+      { name: 'title', type: 'string', key: '', description: 'หัวข้อโพสต์' },
+      { name: 'body', type: 'text', key: '', description: 'เนื้อหาโพสต์' },
+      { name: 'user_id', type: 'int', key: 'FK', description: 'ผู้สร้างโพสต์' },
+      { name: 'status', type: 'string', key: '', description: 'สถานะโพสต์' },
+      { name: 'created_at', type: 'datetime', key: '', description: 'วันที่สร้างโพสต์' },
+    ],
+  },
+  {
+    name: 'FOLLOWS',
+    description: 'ความสัมพันธ์การติดตามระหว่างผู้ใช้',
+    color: 'purple',
+    icon: GitBranch,
+    fields: [
+      { name: 'following_user_id', type: 'int', key: 'FK', description: 'ผู้ใช้ที่ติดตาม' },
+      { name: 'followed_user_id', type: 'int', key: 'FK', description: 'ผู้ใช้ที่ถูกติดตาม' },
+      { name: 'created_at', type: 'datetime', key: '', description: 'วันที่เริ่มติดตาม' },
+    ],
+  },
+]
+
+const initialRelationships = [
+  {
+    id: 1,
+    fromEntity: 'USERS',
+    fromField: 'id',
+    toEntity: 'POSTS',
+    toField: 'user_id',
+    type: '1:N',
+    label: 'creates',
+    detail: 'ผู้ใช้หนึ่งคนสร้างโพสต์ได้หลายรายการ',
+  },
+  {
+    id: 2,
+    fromEntity: 'USERS',
+    fromField: 'id',
+    toEntity: 'FOLLOWS',
+    toField: 'following_user_id',
+    type: '1:N',
+    label: 'following',
+    detail: 'ผู้ใช้หนึ่งคนมีรายการติดตามได้หลายรายการ',
+  },
+  {
+    id: 3,
+    fromEntity: 'USERS',
+    fromField: 'id',
+    toEntity: 'FOLLOWS',
+    toField: 'followed_user_id',
+    type: '1:N',
+    label: 'followed',
+    detail: 'ผู้ใช้หนึ่งคนถูกติดตามได้หลายรายการ',
+  },
+]
+
+function App() {
+  const [activePage, setActivePage] = useState('Overview')
+  const [session, setSession] = useState(undefined)
+  const [search, setSearch] = useState('')
+  const [selectedEntity, setSelectedEntity] = useState('USERS')
+  const [entities, setEntities] = useState(initialEntities)
+    // Relationship Management
+  const [relationships, setRelationships] = useState(initialRelationships)
+  const [showRelationshipModal, setShowRelationshipModal] = useState(false)
+  const [editingRelationship, setEditingRelationship] = useState(null)
+
+  const [relationshipFromEntity, setRelationshipFromEntity] = useState('')
+  const [relationshipFromField, setRelationshipFromField] = useState('')
+  const [relationshipToEntity, setRelationshipToEntity] = useState('')
+  const [relationshipToField, setRelationshipToField] = useState('')
+  const [relationshipType, setRelationshipType] = useState('1:N')
+  const [relationshipLabel, setRelationshipLabel] = useState('')
+  const [relationshipDetail, setRelationshipDetail] = useState('')
+
+  const [showEntityModal, setShowEntityModal] = useState(false)
+  const [editingEntity, setEditingEntity] = useState(null)
+  const [entityName, setEntityName] = useState('')
+  const [entityDescription, setEntityDescription] = useState('')
+  // Column Management
+  const [showColumnModal, setShowColumnModal] = useState(false)
+  const [editingColumn, setEditingColumn] = useState(null)
+  const [columnName, setColumnName] = useState('')
+  const [columnType, setColumnType] = useState('varchar')
+  const [columnKey, setColumnKey] = useState('')
+  const [columnNullable, setColumnNullable] = useState(true)
+  const [columnDefault, setColumnDefault] = useState('')
+  const [columnDescription, setColumnDescription] = useState('')
+  // Column Search & Filter
+  const [columnSearch, setColumnSearch] = useState('')
+  const [columnTypeFilter, setColumnTypeFilter] = useState('all')
+  const [projects, setProjects] = useState([])
+  const [selectedProject, setSelectedProject] = useState(null)
+  const [showProjectModal, setShowProjectModal] = useState(false)
+  const [projectName, setProjectName] = useState('')
+  const [projectDescription, setProjectDescription] = useState('')
+
+  const allFields = useMemo(
+    () => entities.flatMap((entity) =>
+      entity.fields.map((field) => ({ ...field, entity: entity.name, color: entity.color })),
+    ),
+    [entities],
+  )
+
+  const filteredEntities = entities.filter((entity) =>
+    `${entity.name} ${entity.description} ${entity.fields.map((f) => f.name).join(' ')}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  )
+
+  const filteredFields = allFields.filter((field) =>
+    `${field.name} ${field.type} ${field.description} ${field.entity}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  )
+
+  const activeEntity = entities.find((entity) => entity.name === selectedEntity) ?? entities[0]
+  const filteredActiveFields = (activeEntity?.fields ?? []).filter((field) => {
+  const matchesSearch =
+    `${field.name} ${field.description ?? ''}`
+      .toLowerCase()
+      .includes(columnSearch.toLowerCase())
+
+  const matchesType =
+    columnTypeFilter === 'all' ||
+    field.type.toLowerCase() === columnTypeFilter.toLowerCase()
+
+  return matchesSearch && matchesType
+})
+
+  const navItems = [
+    { label: 'Projects', icon: FolderKanban },
+    { label: 'Overview', icon: LayoutDashboard },
+    { label: 'Entities', icon: Database },
+    { label: 'Relationships', icon: Link2 },
+    { label: 'ER Diagram', icon: GitBranch },
+    { label: 'Data Dictionary', icon: BookOpen },
+    { label: 'Changelog', icon: Clock3 },
+  ]
+
+  const handleGoogleLogin = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    })
+
+    if (error) {
+      console.error(error.message)
+      alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message)
+    }
+  }
+  const handleCreateProject = (event) => {
+    event.preventDefault()
+
+    const name = projectName.trim()
+    if (!name) return
+
+    setProjects((current) => [
+      ...current,
+      {
+        id: Date.now(),
+        name,
+        description: projectDescription.trim(),
+      },
+    ])
+
+    setProjectName('')
+    setProjectDescription('')
+    setShowProjectModal(false)
+    setActivePage('Projects')
+  }
+  const handleSaveEntity = (event) => {
+    event.preventDefault()
+
+    const name = entityName.trim().toUpperCase()
+    const description = entityDescription.trim()
+
+    if (!name) return
+
+    const duplicate = entities.some(
+      (entity) =>
+        entity.name.toLowerCase() === name.toLowerCase() &&
+        entity.name !== editingEntity
+    )
+
+    if (duplicate) {
+      alert('มี Entity ชื่อนี้อยู่แล้ว')
+      return
+    }
+
+    if (editingEntity) {
+      setEntities((current) =>
+        current.map((entity) =>
+          entity.name === editingEntity
+            ? { ...entity, name, description }
+            : entity
+        )
+      )
+
+      setSelectedEntity(name)
+    } else {
+      setEntities((current) => [
+        ...current,
+        {
+          name,
+          description,
+          color: 'blue',
+          icon: Database,
+          fields: [],
+        },
+      ])
+
+      setSelectedEntity(name)
+    }
+
+    setEntityName('')
+    setEntityDescription('')
+    setEditingEntity(null)
+    setShowEntityModal(false)
+  }
+  const openEntityModal = (entity = null) => {
+    setEditingEntity(entity?.name ?? null)
+    setEntityName(entity?.name ?? '')
+    setEntityDescription(entity?.description ?? '')
+    setShowEntityModal(true)
+  }
+  const handleDeleteEntity = (name) => {
+    const confirmed = window.confirm(
+      `ต้องการลบ Entity ${name} ใช่หรือไม่?`
+    )
+
+    if (!confirmed) return
+
+    setEntities((current) =>
+      current.filter((entity) => entity.name !== name)
+    )
+
+    if (selectedEntity === name) {
+      const remaining = entities.filter((entity) => entity.name !== name)
+      setSelectedEntity(remaining[0]?.name ?? '')
+    }
+  }
+  // Open Column Modal
+  const openColumnModal = (field = null) => {
+    setEditingColumn(field)
+
+    setColumnName(field?.name ?? '')
+    setColumnType(field?.type ?? 'varchar')
+    setColumnKey(field?.key ?? '')
+    setColumnNullable(field?.nullable ?? true)
+    setColumnDefault(field?.defaultValue ?? '')
+    setColumnDescription(field?.description ?? '')
+
+    setShowColumnModal(true)
+  }
+
+  // Save Column
+  const handleSaveColumn = (event) => {
+    event.preventDefault()
+
+    if (!activeEntity) return
+
+    const trimmedName = columnName.trim()
+
+    if (!trimmedName) {
+      alert('กรุณากรอกชื่อ Column')
+      return
+    }
+
+    const isDuplicate = activeEntity.fields.some(
+      (field) =>
+        field.name.toLowerCase() === trimmedName.toLowerCase() &&
+        field.name !== editingColumn?.name
+    )
+
+    if (isDuplicate) {
+      alert('มี Column ชื่อนี้อยู่แล้ว')
+      return
+    }
+
+    const newField = {
+      name: trimmedName,
+      type: columnType,
+      key: columnKey,
+      nullable: columnNullable,
+      defaultValue: columnDefault.trim(),
+      description: columnDescription.trim(),
+    }
+
+    setEntities((currentEntities) =>
+      currentEntities.map((entity) => {
+        if (entity.name !== activeEntity.name) return entity
+
+        if (editingColumn) {
+          return {
+            ...entity,
+            fields: entity.fields.map((field) =>
+              field.name === editingColumn.name ? newField : field
+            ),
+          }
+        }
+
+        return {
+          ...entity,
+          fields: [...entity.fields, newField],
+        }
+      })
+    )
+
+    setShowColumnModal(false)
+    setEditingColumn(null)
+    setColumnName('')
+    setColumnType('varchar')
+    setColumnKey('')
+    setColumnNullable(true)
+    setColumnDefault('')
+    setColumnDescription('')
+  }
+
+  // Delete Column
+  const handleDeleteColumn = (fieldName) => {
+    if (!activeEntity) return
+
+    const confirmed = window.confirm(
+      `ต้องการลบ Column "${fieldName}" จาก ${activeEntity.name} ใช่หรือไม่?`
+    )
+
+    if (!confirmed) return
+
+    setEntities((currentEntities) =>
+      currentEntities.map((entity) => {
+        if (entity.name !== activeEntity.name) return entity
+
+        return {
+          ...entity,
+          fields: entity.fields.filter(
+            (field) => field.name !== fieldName
+          ),
+        }
+      })
+    )
+  }
+  // Open Relationship Modal
+  const openRelationshipModal = (relationship = null) => {
+    if (relationship) {
+      setEditingRelationship(relationship)
+
+      setRelationshipFromEntity(relationship.fromEntity)
+      setRelationshipFromField(relationship.fromField)
+
+      setRelationshipToEntity(relationship.toEntity)
+      setRelationshipToField(relationship.toField)
+
+      setRelationshipType(relationship.type)
+      setRelationshipLabel(relationship.label)
+      setRelationshipDetail(relationship.detail)
+    } else {
+      setEditingRelationship(null)
+
+      setRelationshipFromEntity(entities[0]?.name || '')
+      setRelationshipFromField(entities[0]?.fields[0]?.name || '')
+
+      setRelationshipToEntity(entities[1]?.name || entities[0]?.name || '')
+      setRelationshipToField(entities[1]?.fields[0]?.name || '')
+
+      setRelationshipType('1:N')
+      setRelationshipLabel('')
+      setRelationshipDetail('')
+    }
+
+    setShowRelationshipModal(true)
+  }
+
+  // Save Relationship
+  const handleSaveRelationship = (event) => {
+    event.preventDefault()
+
+    if (
+      !relationshipFromEntity ||
+      !relationshipFromField ||
+      !relationshipToEntity ||
+      !relationshipToField
+    ) {
+      alert('กรุณาเลือก Entity และ Column ให้ครบ')
+      return
+    }
+
+    if (
+      relationshipFromEntity === relationshipToEntity &&
+      relationshipFromField === relationshipToField
+    ) {
+      alert('ไม่สามารถเชื่อม Column เดียวกันเข้าหาตัวเองได้')
+      return
+    }
+
+    const relationshipData = {
+      id: editingRelationship
+        ? editingRelationship.id
+        : Date.now(),
+
+      fromEntity: relationshipFromEntity,
+      fromField: relationshipFromField,
+
+      toEntity: relationshipToEntity,
+      toField: relationshipToField,
+
+      type: relationshipType,
+      label: relationshipLabel.trim(),
+      detail: relationshipDetail.trim(),
+    }
+
+    if (editingRelationship) {
+      setRelationships((current) =>
+        current.map((relationship) =>
+          relationship.id === editingRelationship.id
+            ? relationshipData
+            : relationship
+        )
+      )
+    } else {
+      setRelationships((current) => [
+        ...current,
+        relationshipData,
+      ])
+    }
+
+    setShowRelationshipModal(false)
+    setEditingRelationship(null)
+  }
+
+  // Delete Relationship
+  const handleDeleteRelationship = (id) => {
+    const confirmed = window.confirm(
+      'คุณต้องการลบ Relationship นี้ใช่หรือไม่?'
+    )
+
+    if (!confirmed) return
+
+    setRelationships((current) =>
+      current.filter((relationship) => relationship.id !== id)
+    )
+  }
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+    })
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+
+  if (session === undefined) {
+    return (
+      <div className="login-loading">
+        <div className="login-loading-logo">
+          <Database size={28} />
+        </div>
+        <p>กำลังเตรียมพื้นที่ทำงาน...</p>
+      </div>
+    )
+  }
+
+  if (!session) {
+    return (
+      <div className="login-page">
+        <div className="login-glow login-glow-one" />
+        <div className="login-glow login-glow-two" />
+
+        <div className="login-layout">
+          <section className="login-intro">
+            <div className="login-brand">
+              <div className="login-brand-icon"><Database size={25} /></div>
+              <div>
+                <strong>Entity Portal</strong>
+                <span>Database Documentation</span>
+              </div>
+            </div>
+
+            <div className="login-intro-copy">
+              <span className="login-eyebrow">YOUR TEAM'S DATA HUB</span>
+              <h1>
+                จัดการเอกสาร
+                <br />
+                ฐานข้อมูลของทีม
+                <br />
+                <span>ได้อย่างง่ายดาย</span>
+              </h1>
+              <p className="login-description">
+                รวมโครงสร้างฐานข้อมูล ความสัมพันธ์ และรายละเอียดของแต่ละ
+                Entity ไว้ในพื้นที่เดียว เพื่อให้ทีมทำงานร่วมกันได้ง่ายขึ้น
+              </p>
+
+              <div className="login-feature">
+                <div className="login-feature-icon blue"><Database size={21} /></div>
+                <div>
+                  <strong>โครงสร้างฐานข้อมูล</strong>
+                  <p>ดูตารางและรายละเอียดของแต่ละ Field</p>
+                </div>
+              </div>
+
+              <div className="login-feature">
+                <div className="login-feature-icon purple"><Link2 size={21} /></div>
+                <div>
+                  <strong>เห็นความสัมพันธ์ของข้อมูล</strong>
+                  <p>สำรวจ Entity และ ER Diagram ได้ในที่เดียว</p>
+                </div>
+              </div>
+
+              <div className="login-feature">
+                <div className="login-feature-icon cyan"><BookOpen size={21} /></div>
+                <div>
+                  <strong>เอกสารครบถ้วน</strong>
+                  <p>ช่วยให้ทีมเข้าใจข้อมูลตรงกัน</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="login-tagline">
+              BETTER DATA <span>/</span> BETTER TEAMS <span>/</span> BETTER WORK
+            </div>
+          </section>
+
+          <section className="login-card">
+            <div className="login-card-logo"><Database size={31} /></div>
+            <h2>ยินดีต้อนรับ</h2>
+            <p className="login-card-subtitle">Welcome to Entity Portal</p>
+            <p className="login-card-description">
+              เข้าสู่ระบบด้วยบัญชี Google ของคุณ
+              <br />
+              เพื่อเข้าถึงเอกสารฐานข้อมูลของทีม
+            </p>
+
+            <button className="login-google-button" onClick={handleGoogleLogin}>
+              <span className="google-g">G</span>
+              <span>Continue with Google</span>
+            </button>
+
+            <div className="login-divider">
+              <span />
+              <small>ปลอดภัยและใช้งานง่าย</small>
+              <span />
+            </div>
+
+            <div className="login-security">
+              <div className="login-security-icon"><ShieldCheck size={21} /></div>
+              <div>
+                <strong>พื้นที่ทำงานสำหรับทีม</strong>
+                <p>
+                  ใช้บัญชีที่ได้รับอนุญาตเพื่อเข้าถึงระบบ
+                  โปรดเก็บข้อมูลบัญชีของคุณให้ปลอดภัย
+                </p>
+              </div>
+            </div>
+
+            <div className="login-card-footer">
+              <span className="login-lock">●</span>
+              สำหรับสมาชิกที่ได้รับอนุญาตเท่านั้น
+            </div>
+          </section>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-icon"><Database size={23} /></div>
+          <div>
+            <div className="brand-title">Entity Portal</div>
+            <div className="brand-subtitle">Database Documentation</div>
+          </div>
+          {showEntityModal && (
+            <div className="project-modal-overlay">
+              <form className="project-modal" onSubmit={handleSaveEntity}>
+                <div className="project-modal-header">
+                  <div>
+                    <h2>{editingEntity ? 'แก้ไข Entity' : 'สร้าง Entity ใหม่'}</h2>
+                    <p>กำหนดชื่อและรายละเอียดของ Entity</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setShowEntityModal(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <label htmlFor="entity-name">ชื่อ Entity *</label>
+                <input
+                  id="entity-name"
+                  value={entityName}
+                  onChange={(event) => setEntityName(event.target.value)}
+                  placeholder="เช่น CUSTOMERS"
+                  required
+                />
+
+                <label htmlFor="entity-description">รายละเอียด</label>
+                <textarea
+                  id="entity-description"
+                  value={entityDescription}
+                  onChange={(event) => setEntityDescription(event.target.value)}
+                  placeholder="อธิบายข้อมูลของ Entity นี้"
+                  rows={3}
+                />
+
+                <div className="project-modal-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setShowEntityModal(false)}
+                  >
+                    ยกเลิก
+                  </button>
+
+                  <button type="submit" className="primary-button">
+                    <Plus size={17} />
+                    {editingEntity ? 'บันทึกการแก้ไข' : 'สร้าง Entity'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+
+        <div className="workspace-label">WORKSPACE</div>
+        <div className="workspace-switch">
+          <div className="workspace-avatar">M</div>
+          <div className="workspace-copy">
+            <strong>Mappoint Project</strong>
+            <span>Documentation space</span>
+          </div>
+          <ChevronDown size={16} />
+        </div>
+
+        <div className="nav-label">MENU</div>
+        <nav className="navigation">
+          {navItems.map(({ label, icon: Icon }) => (
+            <button
+              key={label}
+              className={`nav-item ${activePage === label ? 'active' : ''}`}
+              onClick={() => setActivePage(label)}
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+              {label === 'Entities' && <span className="nav-count">3</span>}
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-bottom">
+          <div className="help-card">
+            <div className="help-icon"><CircleHelp size={19} /></div>
+            <strong>Keep your data documented</strong>
+            <p>Clear documentation helps teams build better systems together.</p>
+          </div>
+          <div className="repo-label">
+            <GitBranch size={17} />
+            <div>
+              <strong>GitHub Repository</strong>
+              <span>entity-documentation-demo</span>
+            </div>
+            <CheckCircle2 size={16} className="repo-check" />
+          </div>
+        </div>
+      </aside>
+
+      <main className="main-content">
+        <header className="topbar">
+          <div className="breadcrumbs">
+            <span>Workspace</span><span className="crumb-separator">/</span>
+            <strong>{activePage}</strong>
+          </div>
+          <div className="topbar-actions">
+            <span className="status-pill">
+              <span className="status-dot" /> Demo data
+            </span>
+            <button
+              className="text-button"
+              onClick={handleGoogleLogin}
+            >
+              Continue with Google
+            </button>
+            <button className="icon-button" aria-label="Settings"><Settings2 size={18} /></button>
+            <div className="avatar">P</div>
+          </div>
+        </header>
+
+        <section className="page-content">
+          <div className="welcome-row">
+            <div>
+              <div className="eyebrow"><span className="eyebrow-dot" /> DATABASE WORKSPACE</div>
+              <h1>{activePage === 'Overview' ? 'Good afternoon!' : activePage}</h1>
+              <p className="welcome-description">
+                Explore your database structure, entities, and relationships in one place.
+              </p>
+            </div>
+            <div className="welcome-actions">
+              <button
+                className="secondary-button"
+                onClick={() => setShowProjectModal(true)}
+              >
+                <Plus size={17} /> New Project
+              </button>
+
+              <button
+                className="primary-button"
+                onClick={() => setActivePage('Entities')}
+              >
+                <Plus size={17} /> Explore entities <ArrowRight size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="notice-banner">
+            <div className="notice-icon"><ShieldCheck size={20} /></div>
+            <div>
+              <strong>Documentation workspace</strong>
+              <p>This version uses sample data. Verify field definitions against your actual database schema.</p>
+            </div>
+            <span className="notice-tag">DEMO</span>
+          </div>
+
+          <div className="stats-grid">
+            <StatCard icon={Database} label="Total Entities" value={entities.length} note="Database tables" color="blue" />
+            <StatCard icon={Table2} label="Total Fields" value={allFields.length} note="Across all entities" color="green" />
+            <StatCard icon={Link2} label="Relationships" value={relationships.length} note="Documented links" color="purple" />
+            <StatCard icon={Activity} label="Documentation" value="Draft" note="Ready for review" color="orange" />
+          </div>
+          {activePage === 'Projects' && (
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>
+                    <FolderKanban size={19} /> My Projects
+                  </h2>
+                  <p>จัดการโปรเจกต์เอกสารฐานข้อมูลของคุณ</p>
+                </div>
+
+                <button
+                  className="primary-button"
+                  onClick={() => setShowProjectModal(true)}
+                >
+                  <Plus size={17} /> New Project
+                </button>
+              </div>
+
+              {projects.length === 0 ? (
+                <div className="empty-state">
+                  ยังไม่มีโปรเจกต์ กด New Project เพื่อสร้างโปรเจกต์แรก
+                </div>
+              ) : (
+                <div className="entity-list">
+                  {projects.map((project) => (
+                    <div
+                      className="entity-row project-clickable"
+                      key={project.id}
+                      onClick={() => {
+                        setSelectedProject(project)
+                        setActivePage('Project Detail')
+                      }}
+                    >
+                      <div className="entity-icon blue">
+                        <FolderKanban size={19} />
+                      </div>
+
+                      <div className="entity-row-copy">
+                        <strong>{project.name}</strong>
+                        <span>
+                          {project.description || 'ไม่มีรายละเอียด'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+          {activePage === 'Project Detail' && selectedProject && (
+            <section className="panel">
+              <button
+                className="secondary-button"
+                onClick={() => setActivePage('Projects')}
+              >
+                ← กลับไป Projects
+              </button>
+
+              <div className="panel-heading" style={{ marginTop: 24 }}>
+                <div>
+                  <h2>
+                    <FolderKanban size={19} />
+                    {selectedProject.name}
+                  </h2>
+                  <p>
+                    {selectedProject.description || 'ไม่มีรายละเอียดโปรเจกต์'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="project-feature-grid">
+                {[
+                  {
+                    label: 'Entities',
+                    description: 'จัดการตารางและรายละเอียดข้อมูล',
+                    icon: Database,
+                  },
+                  {
+                    label: 'Relationships',
+                    description: 'จัดการความสัมพันธ์ระหว่างตาราง',
+                    icon: Link2,
+                  },
+                  {
+                    label: 'ER Diagram',
+                    description: 'ดูแผนภาพโครงสร้างฐานข้อมูล',
+                    icon: GitBranch,
+                  },
+                  {
+                    label: 'Data Dictionary',
+                    description: 'ดูคำอธิบายตารางและคอลัมน์',
+                    icon: BookOpen,
+                  },
+                ].map((item) => {
+                  const Icon = item.icon
+
+                  return (
+                    <button
+                      type="button"
+                      className="project-feature-card"
+                      key={item.label}
+                      onClick={() => setActivePage(item.label)}
+                    >
+                      <Icon size={22} />
+                      <strong>{item.label}</strong>
+                      <span>{item.description}</span>
+                      <span>เปิดดู →</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+          {activePage === 'Overview' && (
+            <div className="content-grid">
+              <section className="panel entity-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2><Database size={19} /> Entity Catalog</h2>
+                    <p>Browse the main tables in your system</p>
+                  </div>
+                  <button className="text-button" onClick={() => setActivePage('Entities')}>View all <ArrowRight size={15} /></button>
+                </div>
+                <div className="entity-list">
+                  {entities.map((entity) => (
+                    <button
+                      key={entity.name}
+                      className="entity-row"
+                      onClick={() => { setSelectedEntity(entity.name); setActivePage('Entities') }}
+                    >
+                      <div className={`entity-icon ${entity.color}`}><entity.icon size={19} /></div>
+                      <div className="entity-row-copy">
+                        <strong>{entity.name}</strong>
+                        <span>{entity.description}</span>
+                      </div>
+                      <span className="field-count">{entity.fields.length} fields</span>
+                      <ArrowRight size={16} className="row-arrow" />
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="panel quick-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2><Clock3 size={19} /> Quick access</h2>
+                    <p>Jump into documentation</p>
+                  </div>
+                </div>
+                <button className="quick-link" onClick={() => setActivePage('ER Diagram')}>
+                  <span className="quick-icon purple"><GitBranch size={18} /></span>
+                  <span><strong>ER Diagram</strong><small>Explore table relationships</small></span>
+                  <ArrowRight size={16} />
+                </button>
+                <button className="quick-link" onClick={() => setActivePage('Data Dictionary')}>
+                  <span className="quick-icon green"><BookOpen size={18} /></span>
+                  <span><strong>Data Dictionary</strong><small>Browse every field</small></span>
+                  <ArrowRight size={16} />
+                </button>
+                <button className="quick-link" onClick={() => setActivePage('Relationships')}>
+                  <span className="quick-icon blue"><Link2 size={18} /></span>
+                  <span><strong>Relationships</strong><small>Understand data connections</small></span>
+                  <ArrowRight size={16} />
+                </button>
+                <div className="review-note">
+                  <ArrowDownRight size={17} />
+                  <span>Keep definitions clear, consistent, and up to date.</span>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activePage === 'Entities' && (
+            <div className="content-grid entity-detail-grid">
+              <section className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2><Database size={19} /> Entities</h2>
+                    <p>Select a table to see its fields</p>
+                  </div>
+
+                  <button
+                    className="primary-button"
+                    onClick={() => openEntityModal()}
+                  >
+                    <Plus size={17} /> New Entity
+                  </button>
+                </div>
+
+                <div className="result-count">
+                  {filteredEntities.length} results
+                </div>
+                <div className="search-box">
+                  <Search size={17} />
+                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search entities or fields..." />
+                </div>
+                <div className="entity-list">
+                  {filteredEntities.map((entity) => (
+                    <button key={entity.name} className={`entity-row ${selectedEntity === entity.name ? 'selected' : ''}`} onClick={() => setSelectedEntity(entity.name)}>
+                      <div className={`entity-icon ${entity.color}`}><entity.icon size={19} /></div>
+                      <div className="entity-row-copy"><strong>{entity.name}</strong><span>{entity.description}</span></div>
+                      <span className="field-count">{entity.fields.length} fields</span>
+                    </button>
+                  ))}
+                  {filteredEntities.length === 0 && <p className="empty-state">No matching entities found.</p>}
+                </div>
+              </section>
+              <section className="panel detail-panel">
+                <div className="detail-header">
+                  <div className={`entity-icon large ${activeEntity.color}`}><activeEntity.icon size={22} /></div>
+                  <div><div className="eyebrow">ENTITY DETAILS</div><h2>{activeEntity.name}</h2><p>{activeEntity.description}</p></div>
+                </div>
+                <div className="entity-actions">
+                  <button
+                    className="secondary-button"
+                    onClick={() => openEntityModal(activeEntity)}
+                  >
+                    Edit Entity
+                  </button>
+
+                  <button
+                    className="secondary-button"
+                    onClick={() => handleDeleteEntity(activeEntity.name)}
+                  >
+                    Delete
+                  </button>
+                </div>
+                <div className="entity-actions">
+                  <button
+                    className="primary-button"
+                    onClick={() => openColumnModal()}
+                  >
+                    <Plus size={17} /> Add Column
+                  </button>
+                </div>
+
+                
+<div className="search-box dictionary-search">
+  <Search size={17} />
+  <input
+    value={columnSearch}
+    onChange={(event) => setColumnSearch(event.target.value)}
+    placeholder="Search column name or description..."
+  />
+</div>
+
+<div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+  <label htmlFor="column-type-filter">Filter by Type:</label>
+  <select
+    id="column-type-filter"
+    value={columnTypeFilter}
+    onChange={(event) => setColumnTypeFilter(event.target.value)}
+  >
+    <option value="all">All Types</option>
+    {[...new Set((activeEntity?.fields ?? []).map((field) => field.type))].map((type) => (
+      <option key={type} value={type}>{type}</option>
+    ))}
+  </select>
+
+  <span>{filteredActiveFields.length} columns</span>
+</div>
+
+                <div className="field-table-wrap">
+                  <table className="field-table">
+                    <thead>
+                      <tr>
+                        <th>Field</th>
+                        <th>Type</th>
+                        <th>Key</th>
+                        <th>Description</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {filteredActiveFields.map((field) => (
+                        <tr key={field.name}>
+                          <td className="field-name">{field.name}</td>
+                          <td><span className="type-tag">{field.type}</span></td>
+                          <td>
+                            {field.key && (
+                              <span className={`key-tag ${field.key.toLowerCase()}`}>
+                                {field.key}
+                              </span>
+                            )}
+                          </td>
+                          <td>{field.description}</td>
+                          <td>
+                            <button
+                              className="secondary-button"
+                              onClick={() => openColumnModal(field)}
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              className="secondary-button"
+                              onClick={() => handleDeleteColumn(field.name)}
+                            >
+                              Delete
+                            </button>
+
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+
+                  </table>
+                </div>
+                <div className="detail-footer"><span><Table2 size={15} /> {activeEntity.fields.length} fields documented</span><span className="draft-label">Draft schema</span></div>
+              </section>
+            </div>
+          )}
+
+          {activePage === 'Data Dictionary' && (
+            <section className="panel">
+              <div className="panel-heading">
+                <div><h2><BookOpen size={19} /> Data Dictionary</h2><p>Search fields across all documented entities</p></div>
+                <span className="result-count">{filteredFields.length} fields</span>
+              </div>
+              <div className="search-box dictionary-search">
+                <Search size={17} />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search field, type, entity, or description..." />
+              </div>
+              <div className="field-table-wrap">
+                <table className="field-table">
+                  <thead><tr><th>Field</th><th>Entity</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
+                  <tbody>{filteredFields.map((field) => (
+                    <tr key={`${field.entity}-${field.name}`}><td className="field-name">{field.name}</td><td><span className={`entity-badge ${field.color}`}>{field.entity}</span></td><td><span className="type-tag">{field.type}</span></td><td>{field.key && <span className={`key-tag ${field.key.toLowerCase()}`}>{field.key}</span>}</td><td>{field.description}</td></tr>
+                  ))}</tbody>
+                </table>
+                {filteredFields.length === 0 && <p className="empty-state">No matching fields found.</p>}
+              </div>
+            </section>
+          )}
+
+          {activePage === 'Relationships' && (
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>
+                    <Link2 size={19} /> Relationship Catalog
+                  </h2>
+                  <p>
+                    Manage connections between database entities
+                  </p>
+                </div>
+
+                <button
+                  className="primary-button"
+                  onClick={() => openRelationshipModal()}
+                >
+                  <Plus size={16} />
+                  Add Relationship
+                </button>
+              </div>
+
+              <div className="relationship-list">
+                {relationships.map((rel) => (
+                  <div
+                    className="relationship-row"
+                    key={rel.id}
+                  >
+                    <div className="relationship-content">
+                      <div className="relationship-entities">
+                        <span className="entity-badge blue">
+                          {rel.fromEntity}
+                        </span>
+
+                        <div className="relationship-connection">
+                          <ArrowRight size={18} />
+
+                          <span>{rel.type}</span>
+                        </div>
+
+                        <span className="entity-badge purple">
+                          {rel.toEntity}
+                        </span>
+                      </div>
+
+                      <div className="relationship-fields">
+                        <code>
+                          {rel.fromEntity}.{rel.fromField}
+                        </code>
+
+                        <ArrowRight size={14} />
+
+                        <code>
+                          {rel.toEntity}.{rel.toField}
+                        </code>
+                      </div>
+
+                      <strong className="relationship-label">
+                        {rel.label || 'No label'}
+                      </strong>
+
+                      <p>{rel.detail || 'No description'}</p>
+                    </div>
+
+                    <div className="relationship-actions">
+                      <button
+                        type="button"
+                        title="Edit Relationship"
+                        onClick={() => openRelationshipModal(rel)}
+                      >
+                        <Pencil size={16} />
+                      </button>
+
+                      <button
+                        type="button"
+                        title="Delete Relationship"
+                        onClick={() =>
+                          handleDeleteRelationship(rel.id)
+                        }
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {relationships.length === 0 && (
+                  <div className="empty-state">
+                    <Link2 size={30} />
+                    <p>No relationships yet</p>
+                    <span>
+                      Click Add Relationship to create your first connection.
+                    </span>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+
+          {activePage === 'ER Diagram' && (
+            <section className="panel diagram-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2><GitBranch size={19} /> Entity Relationship Diagram</h2>
+                  <p>Relationships between USERS, POSTS and FOLLOWS</p>
+                </div>
+                <span className="result-count">3 entities · 3 links</span>
+              </div>
+
+              <div className="diagram-canvas">
+                <div className="diagram-grid connected-diagram">
+                  <div className="diagram-node node-users">
+                    <div className="diagram-entity-header">
+                      <Users size={18} />
+                      <strong>USERS</strong>
+                      <span>4 fields</span>
+                    </div>
+                    <div className="diagram-field"><strong>🔑 id</strong><small>int · PK</small></div>
+                    <div className="diagram-field"><strong>username</strong><small>string</small></div>
+                    <div className="diagram-field"><strong>role</strong><small>string</small></div>
+                    <div className="diagram-field"><strong>created_at</strong><small>datetime</small></div>
+                  </div>
+
+                  <svg className="diagram-lines" viewBox="0 0 800 460" preserveAspectRatio="none" aria-label="Relationship lines">
+                    <defs>
+                      <marker id="arrow-posts" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                        <path d="M0,0 L6,3 L0,6 Z" fill="#20a98a" />
+                      </marker>
+                      <marker id="arrow-follows" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                        <path d="M0,0 L6,3 L0,6 Z" fill="#8b69e8" />
+                      </marker>
+                    </defs>
+                    <path d="M250 90 C350 90 350 90 450 90" stroke="#20a98a" strokeWidth="2.5" fill="none" markerEnd="url(#arrow-posts)" />
+                    <path d="M130 190 C130 300 220 300 300 300" stroke="#8b69e8" strokeWidth="2.5" fill="none" markerEnd="url(#arrow-follows)" />
+                    <path d="M250 350 C350 350 350 350 450 350" stroke="#5689ed" strokeWidth="2.5" fill="none" />
+                    <rect x="320" y="68" width="70" height="24" rx="12" fill="#e4f8f1" />
+                    <text x="355" y="84" fontSize="11" textAnchor="middle" fill="#16866e">creates</text>
+                    <rect x="145" y="235" width="80" height="24" rx="12" fill="#f0eaff" />
+                    <text x="185" y="251" fontSize="11" textAnchor="middle" fill="#7958d2">following</text>
+                    <rect x="320" y="328" width="70" height="24" rx="12" fill="#eaf1ff" />
+                    <text x="355" y="344" fontSize="11" textAnchor="middle" fill="#4778d2">followed</text>
+                  </svg>
+
+                  <div className="diagram-node node-posts">
+                    <div className="diagram-entity-header">
+                      <FileText size={18} />
+                      <strong>POSTS</strong>
+                      <span>6 fields</span>
+                    </div>
+                    <div className="diagram-field"><strong>🔑 id</strong><small>int · PK</small></div>
+                    <div className="diagram-field"><strong>title</strong><small>string</small></div>
+                    <div className="diagram-field"><strong>🔗 user_id</strong><small>int · FK</small></div>
+                    <div className="diagram-field"><strong>status</strong><small>string</small></div>
+                  </div>
+
+                  <div className="diagram-node node-follows">
+                    <div className="diagram-entity-header">
+                      <GitBranch size={18} />
+                      <strong>FOLLOWS</strong>
+                      <span>3 fields</span>
+                    </div>
+                    <div className="diagram-field"><strong>🔗 following_user_id</strong><small>int · FK</small></div>
+                    <div className="diagram-field"><strong>🔗 followed_user_id</strong><small>int · FK</small></div>
+                    <div className="diagram-field"><strong>created_at</strong><small>datetime</small></div>
+                  </div>
+                </div>
+              </div>
+              <p className="diagram-footnote">
+                Conceptual relationship view. Confirm the foreign keys and cardinality against the actual database schema.
+              </p>
+            </section>
+          )}
+
+
+          {activePage === 'Changelog' && (
+            <section className="panel">
+              <div className="panel-heading"><div><h2><Clock3 size={19} /> Changelog</h2><p>Documentation activity</p></div></div>
+              <div className="timeline">
+                <div className="timeline-item"><span className="timeline-dot" /><div><strong>Entity portal initialized</strong><p>Created the first dashboard and sample entity catalog.</p><small>Local demo · Not yet saved as an activity record</small></div></div>
+                <div className="timeline-item"><span className="timeline-dot purple-dot" /><div><strong>Schema documentation drafted</strong><p>USERS, POSTS, and FOLLOWS are displayed as example entities.</p><small>Review needed before production use</small></div></div>
+              </div>
+            </section>
+          )}
+        </section>
+
+        <footer className="app-footer">
+          <span>Entity Portal <span className="footer-separator">·</span> Database Documentation</span>
+          <span><span className="footer-status-dot" /> Local demo workspace</span>
+        </footer>
+      </main>
+      {showProjectModal && (
+        <div className="project-modal-overlay">
+          <form className="project-modal" onSubmit={handleCreateProject}>
+            <div className="project-modal-header">
+              <div>
+                <h2>สร้างโปรเจกต์ใหม่</h2>
+                <p>เพิ่มพื้นที่สำหรับจัดเก็บเอกสารฐานข้อมูล</p>
+              </div>
+
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setShowProjectModal(false)}
+                aria-label="ปิด"
+              >
+                ×
+              </button>
+            </div>
+
+            <label htmlFor="project-name">ชื่อโปรเจกต์ *</label>
+            <input
+              id="project-name"
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
+              placeholder="เช่น Mappoint Database"
+              required
+              autoFocus
+            />
+
+            <label htmlFor="project-description">รายละเอียด</label>
+            <textarea
+              id="project-description"
+              value={projectDescription}
+              onChange={(event) => setProjectDescription(event.target.value)}
+              placeholder="อธิบายเกี่ยวกับโปรเจกต์นี้"
+              rows={3}
+            />
+
+            <div className="project-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setShowProjectModal(false)}
+              >
+                ยกเลิก
+              </button>
+
+              <button type="submit" className="primary-button">
+                <Plus size={17} /> สร้างโปรเจกต์
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showColumnModal && (
+        <div className="project-modal-overlay">
+          <form className="project-modal" onSubmit={handleSaveColumn}>
+            <div className="project-modal-header">
+              <div>
+                <h2>{editingColumn ? 'แก้ไข Column' : 'เพิ่ม Column'}</h2>
+                <p>กำหนดรายละเอียดของ Column ใน {activeEntity?.name}</p>
+              </div>
+
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setShowColumnModal(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <label htmlFor="column-name">ชื่อ Column *</label>
+            <input
+              id="column-name"
+              value={columnName}
+              onChange={(event) => setColumnName(event.target.value)}
+              placeholder="เช่น user_id"
+              required
+            />
+
+            <label htmlFor="column-type">Data Type</label>
+            <select
+              id="column-type"
+              value={columnType}
+              onChange={(event) => setColumnType(event.target.value)}
+            >
+              <option value="varchar">VARCHAR</option>
+              <option value="int">INT</option>
+              <option value="bigint">BIGINT</option>
+              <option value="text">TEXT</option>
+              <option value="boolean">BOOLEAN</option>
+              <option value="date">DATE</option>
+              <option value="datetime">DATETIME</option>
+              <option value="decimal">DECIMAL</option>
+              <option value="uuid">UUID</option>
+            </select>
+
+            <label htmlFor="column-key">Key</label>
+            <select
+              id="column-key"
+              value={columnKey}
+              onChange={(event) => setColumnKey(event.target.value)}
+            >
+              <option value="">None</option>
+              <option value="PK">Primary Key (PK)</option>
+              <option value="FK">Foreign Key (FK)</option>
+              <option value="UK">Unique Key (UK)</option>
+            </select>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={columnNullable}
+                onChange={(event) => setColumnNullable(event.target.checked)}
+              />
+              Allow NULL
+            </label>
+
+            <label htmlFor="column-default">Default Value</label>
+            <input
+              id="column-default"
+              value={columnDefault}
+              onChange={(event) => setColumnDefault(event.target.value)}
+              placeholder="เช่น NULL หรือ 0"
+            />
+
+            <label htmlFor="column-description">Description</label>
+            <textarea
+              id="column-description"
+              value={columnDescription}
+              onChange={(event) => setColumnDescription(event.target.value)}
+              placeholder="อธิบาย Column นี้"
+              rows={3}
+            />
+
+            <div className="project-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setShowColumnModal(false)}
+              >
+                ยกเลิก
+              </button>
+
+              <button type="submit" className="primary-button">
+                <Plus size={17} />
+                {editingColumn ? 'บันทึกการแก้ไข' : 'เพิ่ม Column'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+            {showRelationshipModal && (
+        <div className="modal-overlay">
+          <form
+            className="project-modal relationship-modal"
+            onSubmit={handleSaveRelationship}
+          >
+            <div className="modal-heading">
+              <div>
+                <h2>
+                  {editingRelationship
+                    ? 'Edit Relationship'
+                    : 'Add Relationship'}
+                </h2>
+
+                <p>
+                  Define how two entities are connected.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowRelationshipModal(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="form-group">
+              <label>From Entity</label>
+
+              <select
+                value={relationshipFromEntity}
+                onChange={(event) => {
+                  const entityName = event.target.value
+                  const entity = entities.find(
+                    (item) => item.name === entityName
+                  )
+
+                  setRelationshipFromEntity(entityName)
+                  setRelationshipFromField(
+                    entity?.fields[0]?.name || ''
+                  )
+                }}
+                required
+              >
+                {entities.map((entity) => (
+                  <option
+                    key={entity.name}
+                    value={entity.name}
+                  >
+                    {entity.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>From Column</label>
+
+              <select
+                value={relationshipFromField}
+                onChange={(event) =>
+                  setRelationshipFromField(event.target.value)
+                }
+                required
+              >
+                {(
+                  entities.find(
+                    (item) =>
+                      item.name === relationshipFromEntity
+                  )?.fields || []
+                ).map((field) => (
+                  <option
+                    key={field.name}
+                    value={field.name}
+                  >
+                    {field.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relationship-form-divider">
+              <ArrowRight size={20} />
+              <span>Connect to</span>
+            </div>
+
+            <div className="form-group">
+              <label>To Entity</label>
+
+              <select
+                value={relationshipToEntity}
+                onChange={(event) => {
+                  const entityName = event.target.value
+                  const entity = entities.find(
+                    (item) => item.name === entityName
+                  )
+
+                  setRelationshipToEntity(entityName)
+                  setRelationshipToField(
+                    entity?.fields[0]?.name || ''
+                  )
+                }}
+                required
+              >
+                {entities.map((entity) => (
+                  <option
+                    key={entity.name}
+                    value={entity.name}
+                  >
+                    {entity.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>To Column</label>
+
+              <select
+                value={relationshipToField}
+                onChange={(event) =>
+                  setRelationshipToField(event.target.value)
+                }
+                required
+              >
+                {(
+                  entities.find(
+                    (item) =>
+                      item.name === relationshipToEntity
+                  )?.fields || []
+                ).map((field) => (
+                  <option
+                    key={field.name}
+                    value={field.name}
+                  >
+                    {field.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Relationship Type</label>
+
+              <select
+                value={relationshipType}
+                onChange={(event) =>
+                  setRelationshipType(event.target.value)
+                }
+              >
+                <option value="1:1">One to One (1:1)</option>
+                <option value="1:N">One to Many (1:N)</option>
+                <option value="N:M">Many to Many (N:M)</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Relationship Name</label>
+
+              <input
+                type="text"
+                value={relationshipLabel}
+                onChange={(event) =>
+                  setRelationshipLabel(event.target.value)
+                }
+                placeholder="e.g. creates, belongs to"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Description</label>
+
+              <textarea
+                value={relationshipDetail}
+                onChange={(event) =>
+                  setRelationshipDetail(event.target.value)
+                }
+                placeholder="Describe this relationship..."
+                rows={3}
+              />
+            </div>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() =>
+                  setShowRelationshipModal(false)
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                className="primary-button"
+              >
+                {editingRelationship ? 'Save Changes' : 'Add Relationship'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatCard({ icon: Icon, label, value, note, color }) {
+  return (
+    <div className="stat-card">
+      <div className={`stat-icon ${color}`}><Icon size={20} /></div>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      <div className="stat-note">{note}</div>
+    </div>
+  )
+}
+
+function DiagramEntity({ entity }) {
+  const Icon = entity.icon
+  return (
+    <div className={`diagram-entity ${entity.color}`}>
+      <div className="diagram-entity-header"><Icon size={18} /><strong>{entity.name}</strong><span>{entity.fields.length} fields</span></div>
+      {entity.fields.slice(0, 4).map((field) => (
+        <div className="diagram-field" key={field.name}>
+          <span>{field.key === 'PK' ? '🔑' : field.key === 'FK' ? '🔗' : '•'}</span>
+          <strong>{field.name}</strong>
+          <small>{field.type}</small>
+          {field.key && <span className={`key-tag ${field.key.toLowerCase()}`}>{field.key}</span>}
+        </div>
+      ))}
+      {entity.fields.length > 4 && <div className="diagram-more">+{entity.fields.length - 4} more fields</div>}
+    </div>
+  )
+}
+
+export default App
