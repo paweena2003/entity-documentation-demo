@@ -1,0 +1,476 @@
+/* ===== Query page ===== */
+
+.qx-panel { padding-bottom: 20px; }
+
+/* Tabs */
+.qx-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 20px 16px;
+  border-bottom: 1px solid #eff1f6;
+}
+
+.qx-tabs button {
+  position: relative;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: #8b95a9;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.qx-tabs button:hover { color: #5a5de4; }
+
+.qx-tabs button.active { color: #5b5de6; }
+
+.qx-tabs button.active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: #6263e8;
+}
+
+/* Presets */
+.qx-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 20px 14px;
+}
+
+.qx-presets-label {
+  margin-right: 4px;
+  color: #9ba4b6;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.qx-chip {
+  padding: 6px 12px;
+  border: 1px solid #e1e5ef;
+  border-radius: 99px;
+  background: #fff;
+  color: #566078;
+  font-size: 11px;
+  font-weight: 600;
+  transition: all 0.18s ease;
+}
+
+.qx-chip:hover {
+  border-color: #c9c9f5;
+  background: #f7f7ff;
+  color: #595bd8;
+}
+
+.qx-chip.active {
+  border-color: #6263e8;
+  background: #efefff;
+  color: #4e50d4;
+}
+
+/* Filters */
+.qx-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 20px 12px;
+}
+
+.qx-filters .qx-search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  margin: 0;
+}
+
+.qx-resultbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 20px 10px;
+}
+
+.qx-badge-btn {
+  border: 0;
+  cursor: pointer;
+}
+
+.qx-badge-btn:hover { filter: brightness(0.96); }
+
+.qx-ok {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 20px 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #e4f8f1;
+  color: #12866d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.qx-entity-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 20px;
+}
+
+.qx-entity-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #edf0f6;
+  border-radius: 11px;
+  background: #fff;
+  text-align: left;
+  color: inherit;
+  transition: all 0.16s ease;
+}
+
+.qx-entity-item:hover {
+  border-color: #e0e1ff;
+  background: #f8f9ff;
+}
+
+.qx-entity-item small {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #929bad;
+  font-size: 10px;
+}
+
+.qx-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #6968dc;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* ===== SQL Builder ===== */
+.qx-builder {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 20px;
+  align-items: start;
+  padding: 0 20px;
+}
+
+.qx-config { display: grid; gap: 14px; min-width: 0; }
+
+.qx-block {
+  padding: 14px 16px;
+  border: 1px solid #edf0f6;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.qx-block h3 {
+  margin: 0 0 10px;
+  color: #293650;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.qx-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.qx-block-head h3 { margin: 0; }
+
+.qx-wide { width: 100%; }
+
+.qx-muted {
+  margin: 6px 0 0;
+  color: #9aa3b4;
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.qx-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.qx-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #66718a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.qx-small {
+  min-height: 32px;
+  padding: 5px 11px;
+  font-size: 11px;
+  gap: 6px;
+}
+
+.qx-input {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #e1e5ef;
+  border-radius: 9px;
+  background: #fff;
+  color: #34415c;
+  font: inherit;
+  font-size: 12px;
+}
+
+.qx-input:focus {
+  outline: 3px solid rgba(104, 105, 235, 0.15);
+  border-color: #9b9af1;
+}
+
+.qx-input:disabled { background: #f5f6fa; }
+
+.qx-limit { width: 100px; }
+
+/* JOIN list */
+.qx-joinlist { display: grid; gap: 6px; }
+
+.qx-join {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid #edf0f6;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.qx-join:hover { background: #f8f9ff; }
+
+.qx-join.on {
+  border-color: #c9c9f5;
+  background: #f4f4ff;
+}
+
+.qx-join span {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #758099;
+}
+
+.qx-join code {
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 11px;
+}
+
+.qx-join small {
+  margin-left: 4px;
+  color: #9aa3b4;
+  font-size: 10px;
+}
+
+/* Column picker */
+.qx-cols + .qx-cols { margin-top: 12px; }
+
+.qx-cols-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+.qx-cols-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 12px;
+}
+
+.qx-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 0;
+  color: #48546d;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* WHERE rows */
+.qx-cond {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.qx-cond .qx-input { flex: 1 1 120px; min-width: 100px; }
+
+/* Output */
+.qx-output {
+  position: sticky;
+  top: 16px;
+  min-width: 0;
+}
+
+.qx-output-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #293650;
+  font-size: 12px;
+}
+
+.qx-sql {
+  margin: 0;
+  max-height: 520px;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid #e9eafd;
+  border-radius: 12px;
+  background: #fafaff;
+  color: #2d3a5c;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 12px;
+  line-height: 1.75;
+  white-space: pre;
+}
+
+@media (max-width: 1100px) {
+  .qx-builder { grid-template-columns: 1fr; }
+  .qx-output { position: static; }
+}
+
+@media (max-width: 600px) {
+  .qx-tabs, .qx-presets, .qx-filters, .qx-resultbar, .qx-builder { padding-inline: 14px; }
+  .qx-tabs { margin-inline: 14px; padding-inline: 0; }
+}
+
+/* ===== SQL Console ===== */
+.qx-console {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 20px;
+  align-items: start;
+  padding: 0 20px;
+}
+
+.qx-console-main { min-width: 0; }
+
+.qx-presets-tight { padding-left: 0; padding-right: 0; }
+
+.qx-editor {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid #e1e5ef;
+  border-radius: 12px;
+  background: #fafaff;
+  color: #2d3a5c;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.qx-editor:focus {
+  outline: 3px solid rgba(104, 105, 235, 0.15);
+  border-color: #9b9af1;
+}
+
+.qx-editor-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 12px;
+}
+
+.qx-editor-bar .qx-muted { margin: 0; }
+
+.qx-error {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid #f2dada;
+  border-radius: 10px;
+  background: #fff3f3;
+  color: #c53e3e;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.qx-resultbar-flush { padding-left: 0; padding-right: 0; }
+
+.qx-null { color: #b0b8c8; font-style: italic; }
+
+.qx-schema {
+  padding: 14px 16px;
+  border: 1px solid #edf0f6;
+  border-radius: 12px;
+  background: #fff;
+  font-size: 12px;
+  color: #293650;
+}
+
+.qx-schema-table { margin-top: 12px; }
+
+.qx-schema-name {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #5b5de6;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.qx-schema-name:hover { text-decoration: underline; }
+
+.qx-schema ul {
+  margin: 4px 0 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+}
+
+.qx-schema li { padding: 1px 0; }
+
+.qx-schema code {
+  color: #66718a;
+  font-size: 11px;
+}
+
+@media (max-width: 1100px) {
+  .qx-console { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .qx-console { padding-inline: 14px; }
+  .qx-editor-bar { flex-direction: column; align-items: flex-start; }
+}

@@ -471,15 +471,15 @@ function App() {
 
   const projectNavItems = [
     { label: 'Overview', icon: LayoutDashboard },
-    { label: 'Documentation', icon: Library },
     { label: 'Entities', icon: Database },
     { label: 'Relationships', icon: Link2 },
     { label: 'ER Diagram', icon: GitBranch },
     { label: 'Data Dictionary', icon: BookOpen },
-    { label: 'Notes', icon: FileText },
-    { label: 'Members', icon: Users },
+    { label: 'Documentation', icon: Library },
     { label: 'Import / Export', icon: Download },
+    { label: 'Notes', icon: FileText },
     { label: 'Changelog', icon: Clock3 },
+    { label: 'Members', icon: Users },
   ]
 
   const handleGoogleLogin = async () => {

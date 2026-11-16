@@ -29,7 +29,11 @@ import {
   ShieldCheck,
   Table2,
   Users,
+  Terminal,
 } from 'lucide-react'
+
+import Query from './Query'
+import './Query.css'
 import './App.css'
 import './Features.css'
 import Documentation from './Documentation'
@@ -471,15 +475,16 @@ function App() {
 
   const projectNavItems = [
     { label: 'Overview', icon: LayoutDashboard },
-    { label: 'Documentation', icon: Library },
     { label: 'Entities', icon: Database },
     { label: 'Relationships', icon: Link2 },
     { label: 'ER Diagram', icon: GitBranch },
     { label: 'Data Dictionary', icon: BookOpen },
-    { label: 'Notes', icon: FileText },
-    { label: 'Members', icon: Users },
+    { label: 'Query', icon: Terminal },
+    { label: 'Documentation', icon: Library },
     { label: 'Import / Export', icon: Download },
+    { label: 'Notes', icon: FileText },
     { label: 'Changelog', icon: Clock3 },
+    { label: 'Members', icon: Users },
   ]
 
   const handleGoogleLogin = async () => {
@@ -2352,6 +2357,16 @@ function App() {
                 {sortedFields.length === 0 && <p className="empty-state">No matching fields found.</p>}
               </div>
             </section>
+          )}
+          {selectedProject && activePage === 'Query' && (
+            <Query
+              entities={entities}
+              relationships={relationships}
+              onOpenEntity={(name) => {
+                setSelectedEntity(name)
+                setActivePage('Entities')
+              }}
+            />
           )}
 
           {selectedProject && activePage === 'Relationships' && (
