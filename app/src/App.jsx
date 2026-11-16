@@ -1,31 +1,51 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 import {
   Activity,
+  ArrowDown,
   ArrowDownRight,
+  ArrowUp,
   FolderKanban,
   ArrowRight,
   ArrowLeft,
   BookOpen,
+  Bell,
   CheckCircle2,
   ChevronDown,
   Clock3,
   Database,
+  Download,
   FileText,
   GitBranch,
   LayoutDashboard,
+  Library,
   Link2,
   Plus,
   Search,
   Pencil,
   Trash2,
+  Upload,
   X,
-  Settings2,
   ShieldCheck,
   Table2,
   Users,
 } from 'lucide-react'
 import './App.css'
+import './Features.css'
+import Documentation from './Documentation'
+import Members, { ROLE_LABEL } from './Members'
+import { mergeProject } from './sync'
+import {
+  buildSql,
+  buildDictionaryCsv,
+  buildImportTemplate,
+  parseImportCsv,
+  mergeImport,
+  diagramToSvg,
+  svgToPngBlob,
+  downloadFile,
+  safeFileName,
+} from './exportImport'
 
 const initialEntities = [
   {
@@ -35,8 +55,8 @@ const initialEntities = [
     icon: Users,
     fields: [
       { name: 'id', type: 'int', key: 'PK', description: 'รหัสผู้ใช้' },
-      { name: 'username', type: 'string', key: '', description: 'ชื่อผู้ใช้' },
-      { name: 'role', type: 'string', key: '', description: 'บทบาทผู้ใช้' },
+      { name: 'username', type: 'varchar', key: '', description: 'ชื่อผู้ใช้' },
+      { name: 'role', type: 'varchar', key: '', description: 'บทบาทผู้ใช้' },
       { name: 'created_at', type: 'datetime', key: '', description: 'วันที่สร้างบัญชี' },
     ],
   },
@@ -47,10 +67,10 @@ const initialEntities = [
     icon: FileText,
     fields: [
       { name: 'id', type: 'int', key: 'PK', description: 'รหัสโพสต์' },
-      { name: 'title', type: 'string', key: '', description: 'หัวข้อโพสต์' },
+      { name: 'title', type: 'varchar', key: '', description: 'หัวข้อโพสต์' },
       { name: 'body', type: 'text', key: '', description: 'เนื้อหาโพสต์' },
       { name: 'user_id', type: 'int', key: 'FK', description: 'ผู้สร้างโพสต์' },
-      { name: 'status', type: 'string', key: '', description: 'สถานะโพสต์' },
+      { name: 'status', type: 'varchar', key: '', description: 'สถานะโพสต์' },
       { name: 'created_at', type: 'datetime', key: '', description: 'วันที่สร้างโพสต์' },
     ],
   },
@@ -108,7 +128,55 @@ const initialProjects = [
     relationships: initialRelationships,
   },
 ]
+// ===== Supabase serialization =====
+const SEED_DEMO = false // true = ผู้ใช้ใหม่จะได้ Demo Project อัตโนมัติ
 
+const ICONS = { Users, FileText, GitBranch, Database }
+const iconKey = (icon) =>
+  Object.keys(ICONS).find((key) => ICONS[key] === icon) ?? 'Database'
+
+const serializeEntities = (entities) =>
+  entities.map((entity) => ({ ...entity, icon: iconKey(entity.icon) }))
+
+const deserializeEntities = (entities = []) =>
+  entities.map((entity) => ({ ...entity, icon: ICONS[entity.icon] ?? Database }))
+
+const fromRow = (row) => ({
+  id: row.id,
+  userId: row.user_id,
+  name: row.name,
+  description: row.description ?? '',
+  entities: deserializeEntities(row.entities),
+  relationships: row.relationships ?? [],
+  changelog: row.changelog ?? [],
+  notes: row.notes ?? '',
+  docs: row.docs ?? [],
+})
+
+// สถานะของโปรเจกต์ในรูปแบบที่บันทึกลงฐานข้อมูล (ใช้ทั้งบันทึกและเทียบ/รวมข้อมูล)
+const snapshotOf = (project) => ({
+  entities: serializeEntities(project.entities),
+  relationships: project.relationships ?? [],
+  changelog: project.changelog ?? [],
+  notes: project.notes ?? '',
+  docs: project.docs ?? [],
+})
+
+const rawSnapshot = (row) => ({
+  entities: row.entities ?? [],
+  relationships: row.relationships ?? [],
+  changelog: row.changelog ?? [],
+  notes: row.notes ?? '',
+  docs: row.docs ?? [],
+})
+
+const fromSnapshot = (snap) => ({
+  entities: deserializeEntities(snap.entities),
+  relationships: snap.relationships,
+  changelog: snap.changelog,
+  notes: snap.notes,
+  docs: snap.docs,
+})
 
 // ===== ER Diagram layout =====
 const NODE_W = 260
@@ -122,19 +190,22 @@ const MAX_COLS = 3
 
 const COLOR_HEX = { blue: '#5689ed', green: '#20a98a', purple: '#8b69e8', orange: '#d99743' }
 const COLOR_TINT = { blue: '#eaf1ff', green: '#e4f8f1', purple: '#f0eaff', orange: '#fff3e1' }
+const ENTITY_COLORS = ['blue', 'green', 'purple', 'orange']
 
-//const [showProjectMenu, setShowProjectMenu] = useState(false)
-//const [editingProject, setEditingProject] = useState(null)
-
+const makeImportEntity = (name, index) => ({
+  name,
+  description: '',
+  color: ENTITY_COLORS[index % ENTITY_COLORS.length],
+  icon: Database,
+  fields: [],
+})
 
 function App() {
   const [activePage, setActivePage] = useState('Projects')
   const [session, setSession] = useState(undefined)
   const [search, setSearch] = useState('')
-  //const [selectedEntity, setSelectedEntity] = useState('USERS')
-  //const [entities, setEntities] = useState(initialEntities)
+
   // Relationship Management
-  //const [relationships, setRelationships] = useState(initialRelationships)
   const [showRelationshipModal, setShowRelationshipModal] = useState(false)
   const [editingRelationship, setEditingRelationship] = useState(null)
 
@@ -162,22 +233,107 @@ function App() {
   // Column Search & Filter
   const [columnSearch, setColumnSearch] = useState('')
   const [columnTypeFilter, setColumnTypeFilter] = useState('all')
-  //const [projects, setProjects] = useState([])
-  //const [selectedProject, setSelectedProject] = useState(null)
-  const [projects, setProjects] = useState(initialProjects)
+  // Data Dictionary sort
+  const [dictSort, setDictSort] = useState(null) // null | { key, dir }
+  // Import preview
+  const [importPreview, setImportPreview] = useState(null)
+
+  const [projects, setProjects] = useState([])
+  const versionsRef = useRef({}) // { [projectId]: version ล่าสุดที่รู้จัก }
+  const baseRef = useRef({}) // { [projectId]: snapshot ล่าสุดที่ตรงกับเซิร์ฟเวอร์ } ใช้รวมข้อมูลเมื่อแก้ชนกัน
+  const projectsRef = useRef([])
+  const saveQueueRef = useRef(Promise.resolve())
+  const savingRef = useRef(false)
+  const pendingRefreshRef = useRef(new Set())
+  const [retryTick, setRetryTick] = useState(0)
+  projectsRef.current = projects
+  const [loadingProjects, setLoadingProjects] = useState(false)
+  const [saveStatus, setSaveStatus] = useState('idle') // idle | saving | saved | error | conflict
+  const dirtyRef = useRef(new Set())
+  const loadedUserRef = useRef(null)
+  const notesFocusRef = useRef('')
   const [selectedProjectId, setSelectedProjectId] = useState(null)
   const [selectedEntity, setSelectedEntity] = useState('')
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
 
+  // Members / Realtime / Notifications
+  const [members, setMembers] = useState({}) // { [projectId]: [member rows] }
+  const [membersReady, setMembersReady] = useState(false)
+  const [realtimeStatus, setRealtimeStatus] = useState('')
+  const [notifications, setNotifications] = useState([])
+  const [toasts, setToasts] = useState([])
+  const [showNotif, setShowNotif] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
+  const [toastEnabled, setToastEnabled] = useState(() => {
+    try { return localStorage.getItem('ep_toast') !== 'off' } catch { return true }
+  })
+  const toastEnabledRef = useRef(toastEnabled)
+  toastEnabledRef.current = toastEnabled
+
+  // เก็บอีเมล/id ของเราไว้ใน ref เพราะ callback ของ Realtime ถูกสร้างครั้งเดียว (ถ้าอ้างตัวแปรตรงๆ จะได้ค่าเก่า)
+  const myEmailRef = useRef('')
+  const myIdRef = useRef('')
+
+  const toggleToast = () => {
+    const next = !toastEnabled
+    setToastEnabled(next)
+    try { localStorage.setItem('ep_toast', next ? 'on' : 'off') } catch { /* ignore */ }
+  }
+
+  const markAllRead = () =>
+    setNotifications((current) => current.map((n) => ({ ...n, read: true })))
+
+  const refreshProjectRef = useRef(null)
+  const syncProjectListRef = useRef(null)
+  const loadMembersRef = useRef(null)
+
   // โปรเจกต์ที่เปิดอยู่ และข้อมูลของโปรเจกต์นั้น
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null
   const entities = selectedProject?.entities ?? []
   const relationships = selectedProject?.relationships ?? []
+  const user = session?.user
+  const myEmail = (user?.email ?? '').toLowerCase()
+  myEmailRef.current = myEmail
+  myIdRef.current = user?.id ?? ''
+  const displayName = user?.user_metadata?.full_name ?? user?.email ?? ''
+  const avatarUrl = user?.user_metadata?.avatar_url
+  const changelog = selectedProject?.changelog ?? []
+
+  // บทบาทของผู้ใช้ในแต่ละโปรเจกต์
+  const roleOf = (project) => {
+    if (!project) return null
+    const mine = (members[project.id] ?? []).find(
+      (m) => (user?.id && m.user_id === user.id) || (m.email ?? '').toLowerCase() === myEmail,
+    )
+    if (mine) return mine.role
+    if (project.userId && project.userId === user?.id) return 'admin'
+    return membersReady ? 'viewer' : 'admin'
+  }
+  const myRole = roleOf(selectedProject)
+  const canEdit = myRole === 'admin' || myRole === 'editor'
+  const isAdmin = myRole === 'admin'
+  const isOwner = Boolean(selectedProject?.userId) && selectedProject?.userId === user?.id
 
   const [showProjectMenu, setShowProjectMenu] = useState(false)
   const [editingProject, setEditingProject] = useState(null)
+
+  const notify = (text, kind = 'info') => {
+    const id = crypto.randomUUID()
+    const item = { id, at: new Date().toISOString(), text, kind, read: false }
+    setNotifications((current) => [item, ...current].slice(0, 30))
+    if (!toastEnabledRef.current) return
+    setToasts((current) => [...current, item])
+    setTimeout(() => setToasts((current) => current.filter((t) => t.id !== id)), 6000)
+  }
+
+  const toggleNotif = () => {
+    if (showNotif) setNotifications((current) => current.map((n) => ({ ...n, read: true })))
+    setShowNotif((open) => !open)
+  }
+
+  const unreadCount = notifications.filter((n) => !n.read).length
 
   const closeColumnModal = () => {
     setShowColumnModal(false)
@@ -191,6 +347,8 @@ function App() {
   }
 
   const updateProjectData = (key, updater) => {
+    if (!canEdit || selectedProjectId === null) return
+    dirtyRef.current.add(selectedProjectId)
     setProjects((current) =>
       current.map((project) =>
         project.id === selectedProjectId
@@ -203,8 +361,37 @@ function App() {
     )
   }
 
+  const logChange = (action, target, name, summary) => {
+    if (!canEdit || selectedProjectId === null) return
+    dirtyRef.current.add(selectedProjectId)
+    setProjects((current) =>
+      current.map((p) =>
+        p.id === selectedProjectId
+          ? {
+            ...p,
+            changelog: [
+              {
+                id: crypto.randomUUID(),
+                at: new Date().toISOString(),
+                by: displayName,
+                action,
+                target,
+                name,
+                summary,
+              },
+              ...(p.changelog ?? []),
+            ].slice(0, 500),
+          }
+          : p
+      )
+    )
+  }
+
   const setEntities = (updater) => updateProjectData('entities', updater)
   const setRelationships = (updater) => updateProjectData('relationships', updater)
+  const setNotes = (value) => updateProjectData('notes', value)
+  const docs = selectedProject?.docs ?? []
+  const setDocs = (updater) => updateProjectData('docs', updater)
 
   const allFields = useMemo(
     () => entities.flatMap((entity) =>
@@ -212,7 +399,6 @@ function App() {
     ),
     [entities],
   )
-
 
   const filteredEntities = entities.filter((entity) =>
     `${entity.name} ${entity.description} ${entity.fields.map((f) => f.name).join(' ')}`
@@ -226,6 +412,38 @@ function App() {
       .includes(search.toLowerCase()),
   )
 
+  // เรียงข้อมูลใน Data Dictionary (คลิกหัวคอลัมน์: ก-ฮ → ฮ-ก → ลำดับเดิม)
+  const sortedFields = dictSort
+    ? [...filteredFields].sort(
+      (a, b) =>
+        (dictSort.dir === 'asc' ? 1 : -1) *
+        String(a[dictSort.key] ?? '').localeCompare(String(b[dictSort.key] ?? ''), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+    )
+    : filteredFields
+
+  const toggleSort = (key) => {
+    setDictSort((current) => {
+      if (!current || current.key !== key) return { key, dir: 'asc' }
+      if (current.dir === 'asc') return { key, dir: 'desc' }
+      return null
+    })
+  }
+
+  const sortHeader = (label, key) => (
+    <th>
+      <button
+        type="button"
+        className={`th-sort ${dictSort?.key === key ? 'active' : ''}`}
+        onClick={() => toggleSort(key)}
+      >
+        {label}
+        {dictSort?.key === key && (dictSort.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
+      </button>
+    </th>
+  )
 
   const activeEntity =
     entities.find((entity) => entity.name === selectedEntity) ??
@@ -253,10 +471,14 @@ function App() {
 
   const projectNavItems = [
     { label: 'Overview', icon: LayoutDashboard },
+    { label: 'Documentation', icon: Library },
     { label: 'Entities', icon: Database },
     { label: 'Relationships', icon: Link2 },
     { label: 'ER Diagram', icon: GitBranch },
     { label: 'Data Dictionary', icon: BookOpen },
+    { label: 'Notes', icon: FileText },
+    { label: 'Members', icon: Users },
+    { label: 'Import / Export', icon: Download },
     { label: 'Changelog', icon: Clock3 },
   ]
 
@@ -273,6 +495,7 @@ function App() {
       alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message)
     }
   }
+
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut()
     if (error) {
@@ -282,6 +505,7 @@ function App() {
     setSelectedProjectId(null)
     setActivePage('Projects')
   }
+
   const openProjectModal = (project = null) => {
     setEditingProject(project)
     setProjectName(project?.name ?? '')
@@ -297,7 +521,7 @@ function App() {
     setProjectDescription('')
   }
 
-  const handleSaveProject = (event) => {
+  const handleSaveProject = async (event) => {
     event.preventDefault()
 
     const name = projectName.trim()
@@ -314,36 +538,97 @@ function App() {
       return
     }
 
+    const description = projectDescription.trim()
+
+    // แก้ไขโปรเจกต์เดิม (เฉพาะ Admin)
     if (editingProject) {
+      if (roleOf(editingProject) !== 'admin') {
+        alert('เฉพาะ Admin เท่านั้นที่แก้ไขชื่อโปรเจกต์ได้')
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('projects')
+        .update({ name, description })
+        .eq('id', editingProject.id)
+        .select('version')
+        .single()
+
+      if (error) {
+        alert('บันทึกไม่สำเร็จ: ' + error.message)
+        return
+      }
+
+      // trigger ใน DB เพิ่ม version ทุกครั้งที่ update จึงต้องจำค่าใหม่ไว้
+      versionsRef.current[editingProject.id] = data.version
+
       setProjects((current) =>
         current.map((project) =>
           project.id === editingProject.id
-            ? { ...project, name, description: projectDescription.trim() }
+            ? { ...project, name, description }
             : project
         )
       )
       closeProjectModal()
       return
     }
+
     // สร้างโปรเจกต์ใหม่ แล้วเข้าไปที่หน้า Entities ทันที
-    const newProject = {
-      id: Date.now(),
-      name,
-      description: projectDescription.trim(),
-      entities: [],
-      relationships: [],
+    const { data, error } = await supabase
+      .from('projects')
+      .insert({ name, description, entities: [], relationships: [] })
+      .select()
+      .single()
+
+    if (error) {
+      alert('สร้างโปรเจกต์ไม่สำเร็จ: ' + error.message)
+      return
     }
 
-    setProjects((current) => [...current, newProject])
+    versionsRef.current[data.id] = data.version
+    baseRef.current[data.id] = rawSnapshot(data)
+
+    const newProject = fromRow(data)
+    setProjects((current) =>
+      current.some((p) => p.id === newProject.id) ? current : [...current, newProject]
+    )
     closeProjectModal()
+    loadMembersRef.current?.()
     openProject(newProject)
     setActivePage('Entities')
   }
 
+  const handleDeleteProject = async (project) => {
+    const confirmed = window.confirm(
+      `ต้องการลบโปรเจกต์ "${project.name}" และข้อมูลทั้งหมดในโปรเจกต์ใช่หรือไม่?`
+    )
+    if (!confirmed) return
+
+    const { error } = await supabase.from('projects').delete().eq('id', project.id)
+
+    if (error) {
+      alert('ลบไม่สำเร็จ: ' + error.message)
+      return
+    }
+
+    dirtyRef.current.delete(project.id)
+    delete versionsRef.current[project.id]
+    delete baseRef.current[project.id]
+    setProjects((current) => current.filter((p) => p.id !== project.id))
+
+    // ถ้ากำลังเปิดโปรเจกต์นี้อยู่ ให้กลับหน้า Projects
+    if (selectedProjectId === project.id) {
+      setSelectedProjectId(null)
+      setActivePage('Projects')
+    }
+    setShowProjectMenu(false)
+  }
+
   const handleSaveEntity = (event) => {
     event.preventDefault()
+    if (!canEdit) return
 
-    const name = entityName.trim().toUpperCase()
+    const name = entityName.trim()
     const description = entityDescription.trim()
 
     if (!name) return
@@ -358,7 +643,6 @@ function App() {
       alert('มี Entity ชื่อนี้อยู่แล้ว')
       return
     }
-
 
     if (editingEntity) {
       // เปลี่ยนชื่อ Entity
@@ -385,21 +669,38 @@ function App() {
         }))
       )
 
-      setSelectedEntity(name)
+      // เปลี่ยนชื่อหน้า Doc ที่จับคู่กับ Entity นี้ด้วย (ให้ปุ่ม "ซิงก์จาก Entity" ยังใช้ได้)
+      setDocs((current) =>
+        current.map((d) =>
+          d.group === 'ENTITIES' && d.title.toLowerCase() === editingEntity.toLowerCase()
+            ? { ...d, title: name, updatedAt: new Date().toISOString(), updatedBy: displayName }
+            : d
+        )
+      )
 
+      setSelectedEntity(name)
+      logChange(
+        'update',
+        'entity',
+        name,
+        editingEntity === name
+          ? `แก้ไข Entity ${name}`
+          : `เปลี่ยนชื่อ Entity ${editingEntity} → ${name}`
+      )
     } else {
       setEntities((current) => [
         ...current,
         {
           name,
           description,
-          color: ['blue', 'green', 'purple', 'orange'][entities.length % 4],
+          color: ENTITY_COLORS[entities.length % 4],
           icon: Database,
           fields: [],
         },
       ])
 
       setSelectedEntity(name)
+      logChange('create', 'entity', name, `สร้าง Entity ${name}`)
     }
 
     setEntityName('')
@@ -407,12 +708,15 @@ function App() {
     setEditingEntity(null)
     setShowEntityModal(false)
   }
+
   const openProject = (project) => {
     setSelectedProjectId(project.id)
     setSelectedEntity(project.entities[0]?.name ?? '')
     setSearch('')
     setColumnSearch('')
     setColumnTypeFilter('all')
+    setDictSort(null)
+    setImportPreview(null)
     setActivePage('Overview')
   }
 
@@ -421,14 +725,6 @@ function App() {
     setActivePage('Projects')
   }
 
-  const handleDeleteProject = (project) => {
-    const confirmed = window.confirm(
-      `ต้องการลบโปรเจกต์ "${project.name}" และข้อมูลทั้งหมดในโปรเจกต์ใช่หรือไม่?`
-    )
-    if (!confirmed) return
-
-    setProjects((current) => current.filter((p) => p.id !== project.id))
-  }
   const openEntityModal = (entity = null) => {
     setEditingEntity(entity?.name ?? null)
     setEntityName(entity?.name ?? '')
@@ -444,6 +740,7 @@ function App() {
   }
 
   const handleDeleteEntity = (name) => {
+    if (!canEdit) return
     const confirmed = window.confirm(
       `ต้องการลบ Entity ${name} ใช่หรือไม่?`
     )
@@ -463,6 +760,7 @@ function App() {
           rel.toEntity !== name
       )
     )
+    logChange('delete', 'entity', name, `ลบ Entity ${name}`)
 
     // ถ้า Entity ที่กำลังเลือกถูกลบ ให้เลือก Entity ตัวแรกที่เหลือ
     if (selectedEntity === name) {
@@ -492,7 +790,7 @@ function App() {
   const handleSaveColumn = (event) => {
     event.preventDefault()
 
-    if (!activeEntity) return
+    if (!canEdit || !activeEntity) return
 
     const trimmedName = columnName.trim()
 
@@ -541,6 +839,13 @@ function App() {
       })
     )
 
+    logChange(
+      editingColumn ? 'update' : 'create',
+      'column',
+      `${activeEntity.name}.${trimmedName}`,
+      editingColumn ? `แก้ไข Column ${trimmedName}` : `เพิ่ม Column ${trimmedName}`
+    )
+
     // ถ้าเป็นการแก้ไข Column ให้เปลี่ยนชื่อใน Relationship ด้วย
     if (editingColumn && editingColumn.name !== trimmedName) {
       setRelationships((current) =>
@@ -562,21 +867,12 @@ function App() {
       )
     }
 
-    setShowColumnModal(false)
-    setEditingColumn(null)
-    setColumnName('')
-    setColumnType('varchar')
-    setColumnKey('')
-    setColumnNullable(true)
-    setColumnDefault('')
-    setColumnDescription('')
+    closeColumnModal()
   }
 
-
   // Delete Column
-
   const handleDeleteColumn = (fieldName) => {
-    if (!activeEntity) return
+    if (!canEdit || !activeEntity) return
 
     const confirmed = window.confirm(
       `ต้องการลบ Column "${fieldName}" จาก ${activeEntity.name} ใช่หรือไม่?`
@@ -584,12 +880,12 @@ function App() {
 
     if (!confirmed) return
 
-    const entityName = activeEntity.name
+    const targetEntity = activeEntity.name
 
     // ลบ Column จาก Entity
     setEntities((currentEntities) =>
       currentEntities.map((entity) => {
-        if (entity.name !== entityName) return entity
+        if (entity.name !== targetEntity) return entity
 
         return {
           ...entity,
@@ -605,14 +901,17 @@ function App() {
       current.filter(
         (rel) =>
           !(
-            (rel.fromEntity === entityName &&
+            (rel.fromEntity === targetEntity &&
               rel.fromField === fieldName) ||
-            (rel.toEntity === entityName &&
+            (rel.toEntity === targetEntity &&
               rel.toField === fieldName)
           )
       )
     )
+
+    logChange('delete', 'column', `${targetEntity}.${fieldName}`, `ลบ Column ${fieldName}`)
   }
+
   // Open Relationship Modal
   const openRelationshipModal = (relationship = null) => {
     if (relationship) {
@@ -647,6 +946,7 @@ function App() {
   // Save Relationship
   const handleSaveRelationship = (event) => {
     event.preventDefault()
+    if (!canEdit) return
 
     if (
       !relationshipFromEntity ||
@@ -696,24 +996,190 @@ function App() {
         relationshipData,
       ])
     }
-
+    logChange(
+      editingRelationship ? 'update' : 'create',
+      'relationship',
+      `${relationshipFromEntity}.${relationshipFromField} → ${relationshipToEntity}.${relationshipToField}`,
+      editingRelationship ? 'แก้ไข Relationship' : 'เพิ่ม Relationship'
+    )
     setShowRelationshipModal(false)
     setEditingRelationship(null)
   }
 
   // Delete Relationship
   const handleDeleteRelationship = (id) => {
-    const confirmed = window.confirm(
-      'คุณต้องการลบ Relationship นี้ใช่หรือไม่?'
-    )
-
+    if (!canEdit) return
+    const confirmed = window.confirm('คุณต้องการลบ Relationship นี้ใช่หรือไม่?')
     if (!confirmed) return
+
+    const rel = relationships.find((r) => r.id === id)
 
     setRelationships((current) =>
       current.filter((relationship) => relationship.id !== id)
     )
+
+    logChange(
+      'delete',
+      'relationship',
+      rel ? `${rel.fromEntity}.${rel.fromField} → ${rel.toEntity}.${rel.toField}` : String(id),
+      'ลบ Relationship'
+    )
   }
 
+  // ===== Members =====
+  const loadMembers = async () => {
+    const { data, error } = await supabase
+      .from('project_members')
+      .select('*')
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      console.warn('โหลดสมาชิกไม่สำเร็จ (ยังไม่ได้รัน members_realtime.sql?):', error.message)
+      return
+    }
+
+    const map = {}
+    data.forEach((m) => {
+      if (!map[m.project_id]) map[m.project_id] = []
+      map[m.project_id].push(m)
+    })
+    setMembers(map)
+    setMembersReady(true)
+  }
+  loadMembersRef.current = loadMembers
+
+  const inviteMember = async (rawEmail, role) => {
+    if (!isAdmin || selectedProjectId === null) return false
+    const email = rawEmail.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      alert('รูปแบบอีเมลไม่ถูกต้อง')
+      return false
+    }
+
+    const { error } = await supabase
+      .from('project_members')
+      .insert({ project_id: selectedProjectId, email, role, invited_by: user.id })
+
+    if (error) {
+      alert(error.code === '23505' ? 'อีเมลนี้เป็นสมาชิกของโปรเจกต์อยู่แล้ว' : 'เชิญไม่สำเร็จ: ' + error.message)
+      return false
+    }
+
+    await loadMembers()
+    logChange('create', 'member', email, `เชิญ ${email} เป็น ${ROLE_LABEL[role]}`)
+    notify(`เชิญ ${email} เป็น ${ROLE_LABEL[role]} แล้ว`, 'success')
+    return true
+  }
+
+  const changeMemberRole = async (member, role) => {
+    if (!isAdmin) return
+    const { error } = await supabase.from('project_members').update({ role }).eq('id', member.id)
+    if (error) {
+      alert('เปลี่ยนบทบาทไม่สำเร็จ: ' + error.message)
+      return
+    }
+    await loadMembers()
+    logChange('update', 'member', member.email, `เปลี่ยนบทบาท ${member.email} เป็น ${ROLE_LABEL[role]}`)
+  }
+
+  const removeMember = async (member) => {
+    const self = (member.email ?? '').toLowerCase() === myEmail
+    const ok = window.confirm(
+      self
+        ? `ต้องการออกจากโปรเจกต์ "${selectedProject?.name}" ใช่หรือไม่?`
+        : `ต้องการนำ ${member.email} ออกจากโปรเจกต์ใช่หรือไม่?`
+    )
+    if (!ok) return
+
+    const { error } = await supabase.from('project_members').delete().eq('id', member.id)
+    if (error) {
+      alert('ดำเนินการไม่สำเร็จ: ' + error.message)
+      return
+    }
+
+    if (self) {
+      await syncProjectListRef.current?.()
+      return
+    }
+    await loadMembers()
+    logChange('delete', 'member', member.email, `นำ ${member.email} ออกจากโปรเจกต์`)
+  }
+
+  // ===== Realtime / merge =====
+  const adoptRemote = (row) => {
+    versionsRef.current[row.id] = row.version
+    baseRef.current[row.id] = rawSnapshot(row)
+    dirtyRef.current.delete(row.id)
+    const next = fromRow(row)
+    setProjects((current) =>
+      current.some((p) => p.id === row.id)
+        ? current.map((p) => (p.id === row.id ? next : p))
+        : [...current, next]
+    )
+  }
+
+  // ดึงโปรเจกต์ล่าสุดจากเซิร์ฟเวอร์เมื่อมีคนอื่นแก้ (ถ้าเรากำลังแก้อยู่ จะรอไปรวมตอน autosave)
+  const refreshProject = async (id) => {
+    if (dirtyRef.current.has(id) || savingRef.current) {
+      pendingRefreshRef.current.add(id)
+      return
+    }
+
+    const { data: row, error } = await supabase.from('projects').select('*').eq('id', id).maybeSingle()
+    if (error || !row) return
+
+    if (dirtyRef.current.has(id) || savingRef.current) {
+      pendingRefreshRef.current.add(id)
+      return
+    }
+
+    const known = projectsRef.current.find((p) => p.id === id)
+    if (known && row.version === versionsRef.current[id]) return
+
+    const topLog = (row.changelog ?? [])[0]
+    const isNewLog = topLog && topLog.id !== known?.changelog?.[0]?.id
+
+    adoptRemote(row)
+
+    if (!known) {
+      if (row.user_id !== user?.id) notify(`คุณถูกเชิญเข้าร่วมโปรเจกต์ "${row.name}"`, 'success')
+      loadMembers()
+    } else if (isNewLog) {
+      notify(`[${row.name}] ${topLog.by || 'ผู้ใช้อื่น'}: ${topLog.summary}`)
+    } else {
+      notify(`โปรเจกต์ "${row.name}" ถูกอัปเดตโดยผู้ใช้อื่น`)
+    }
+  }
+  refreshProjectRef.current = refreshProject
+
+  // ซิงก์รายการโปรเจกต์ (เมื่อสมาชิกถูกเพิ่ม/ลบ/เปลี่ยนบทบาท)
+  const syncProjectList = async () => {
+    const { data: rows, error } = await supabase.from('projects').select('id')
+    if (error) return
+
+    const serverIds = new Set(rows.map((r) => r.id))
+    const removed = projectsRef.current.filter((p) => !serverIds.has(p.id))
+
+    if (removed.length) {
+      removed.forEach((p) => {
+        dirtyRef.current.delete(p.id)
+        delete versionsRef.current[p.id]
+        delete baseRef.current[p.id]
+      })
+      setProjects((current) => current.filter((p) => serverIds.has(p.id)))
+      setSelectedProjectId((current) => (removed.some((p) => p.id === current) ? null : current))
+      notify(`คุณไม่มีสิทธิ์เข้าถึงโปรเจกต์ ${removed.map((p) => `"${p.name}"`).join(', ')} แล้ว`, 'warn')
+    }
+
+    for (const r of rows) {
+      if (!projectsRef.current.some((p) => p.id === r.id)) await refreshProject(r.id)
+    }
+
+    await loadMembers()
+  }
+  syncProjectListRef.current = syncProjectList
+
+  // 1) จัดการ session
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
@@ -721,12 +1187,268 @@ function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
     })
 
     return () => subscription.unsubscribe()
   }, [])
+
+  // 2) โหลดโปรเจกต์ของผู้ใช้เมื่อ login
+  useEffect(() => {
+    const userId = session?.user?.id
+
+    if (!userId) {
+      loadedUserRef.current = null
+      dirtyRef.current.clear()
+      versionsRef.current = {}
+      baseRef.current = {}
+      setProjects([])
+      setMembers({})
+      setMembersReady(false)
+      setNotifications([])
+      setSelectedProjectId(null)
+      setActivePage('Projects')
+      return
+    }
+    if (loadedUserRef.current === userId) return
+    loadedUserRef.current = userId
+
+    const load = async () => {
+      setLoadingProjects(true)
+
+      // ผูกคำเชิญที่ส่งมาทางอีเมลเข้ากับบัญชีนี้ (ไม่มีฟังก์ชัน = ข้ามไป)
+      await supabase.rpc('claim_project_invites')
+
+      let { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: true })
+
+      if (error) {
+        loadedUserRef.current = null
+        setLoadingProjects(false)
+        alert('โหลดโปรเจกต์ไม่สำเร็จ: ' + error.message)
+        return
+      }
+
+      // ผู้ใช้ใหม่ → สร้าง Demo Project ให้
+      if (SEED_DEMO && data.length === 0) {
+        const demo = initialProjects[0]
+        const { data: created, error: seedError } = await supabase
+          .from('projects')
+          .insert({
+            name: demo.name,
+            description: demo.description,
+            entities: serializeEntities(demo.entities),
+            relationships: demo.relationships,
+          })
+          .select()
+          .single()
+
+        if (!seedError) data = [created]
+      }
+
+      data.forEach((row) => {
+        versionsRef.current[row.id] = row.version
+        baseRef.current[row.id] = rawSnapshot(row)
+      })
+
+      setProjects(data.map(fromRow))
+      setLoadingProjects(false)
+      loadMembers()
+    }
+
+    load()
+  }, [session?.user?.id])
+
+  // 3) Realtime: รับการเปลี่ยนแปลงจากผู้ใช้อื่น
+  useEffect(() => {
+    const userId = session?.user?.id
+    if (!userId) return
+
+    const channel = supabase
+      .channel('entity-portal-sync')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'projects' }, (payload) => {
+        const id = payload.new?.id
+        if (id === undefined || id === null) return
+        if (payload.new.version !== undefined && payload.new.version === versionsRef.current[id]) return // เราบันทึกเอง
+        refreshProjectRef.current?.(id)
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'projects' }, (payload) => {
+        const id = payload.old?.id
+        const gone = projectsRef.current.find((p) => p.id === id)
+        if (!gone) return
+        dirtyRef.current.delete(id)
+        delete versionsRef.current[id]
+        delete baseRef.current[id]
+        setProjects((current) => current.filter((p) => p.id !== id))
+        setSelectedProjectId((current) => (current === id ? null : current))
+        notify(`โปรเจกต์ "${gone.name}" ถูกลบโดยเจ้าของ`, 'warn')
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_members' }, (payload) => {
+        // แจ้งเตือนเมื่อมีสมาชิกใหม่เข้าโปรเจกต์ที่เรามีอยู่แล้ว
+        if (payload.eventType === 'INSERT') {
+          const m = payload.new ?? {}
+          const isMe = (m.email ?? '').toLowerCase() === myEmailRef.current
+          const invitedByMe = Boolean(m.invited_by) && m.invited_by === myIdRef.current
+          const project = projectsRef.current.find((p) => p.id === m.project_id)
+
+          // ข้ามกรณีเป็นตัวเรา (มีแจ้ง "ถูกเชิญเข้าร่วม" ใน refreshProject อยู่แล้ว)
+          // และกรณีเราเป็นคนเชิญเอง (inviteMember แจ้งไปแล้ว)
+          if (project && !isMe && !invitedByMe) {
+            notify(
+              `${m.email} เข้าร่วมโปรเจกต์ "${project.name}" ในฐานะ ${ROLE_LABEL[m.role] ?? m.role}`,
+              'success',
+            )
+          }
+        }
+        syncProjectListRef.current?.()
+      })
+      .subscribe((status) => setRealtimeStatus(status))
+
+    return () => {
+      supabase.removeChannel(channel)
+      setRealtimeStatus('')
+    }
+  }, [session?.user?.id])
+
+  // 4) Autosave: รอ 700ms หลังแก้ไขล่าสุด, บันทึกทีละรอบ, ตรวจ version, รวมข้อมูลอัตโนมัติเมื่อแก้ชนกัน, retry เมื่อพลาด
+  useEffect(() => {
+    if (dirtyRef.current.size === 0) return
+
+    setSaveStatus('saving')
+
+    // version ไม่ตรง = มีคนแก้ไปก่อน → ดึงของใหม่มารวมกับของเรา (3-way merge) แล้วบันทึกอีกครั้ง
+    const mergeWithRemote = async (id, sent) => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const { data: row, error } = await supabase.from('projects').select('*').eq('id', id).maybeSingle()
+        if (error) return 'error'
+        if (!row) return 'conflict'
+
+        const remote = rawSnapshot(row)
+        const merged = mergeProject(baseRef.current[id] ?? remote, sent, remote)
+        if (!merged) return 'conflict' // แก้จุดเดียวกันต่างกัน รวมเองไม่ได้
+
+        const { data, error: upError } = await supabase
+          .from('projects')
+          .update(merged)
+          .eq('id', id)
+          .eq('version', row.version)
+          .select('version')
+
+        if (upError) return 'error'
+
+        if (data && data.length > 0) {
+          versionsRef.current[id] = data[0].version
+          baseRef.current[id] = merged
+          setProjects((current) =>
+            current.map((p) => {
+              if (p.id !== id) return p
+              // เผื่อผู้ใช้พิมพ์เพิ่มระหว่างบันทึก: รวมสิ่งที่พิมพ์เพิ่มเข้ากับผลที่รวมแล้ว
+              const now = snapshotOf(p)
+              const next = mergeProject(sent, now, merged) ?? merged
+              return { ...p, name: row.name, description: row.description ?? '', ...fromSnapshot(next) }
+            })
+          )
+          return 'merged'
+        }
+      }
+      return 'conflict'
+    }
+
+    const flushDirty = async () => {
+      const ids = [...dirtyRef.current]
+      if (ids.length === 0) return
+      dirtyRef.current.clear()
+      savingRef.current = true
+
+      let failed = false
+      let merged = false
+      const conflicts = []
+
+      try {
+        for (const id of ids) {
+          const project = projectsRef.current.find((p) => p.id === id)
+          if (!project) continue
+
+          const snap = snapshotOf(project)
+          const { data, error } = await supabase
+            .from('projects')
+            .update(snap)
+            .eq('id', id)
+            .eq('version', versionsRef.current[id])
+            .select('version')
+
+          if (error) {
+            failed = true
+            dirtyRef.current.add(id)
+          } else if (data && data.length > 0) {
+            versionsRef.current[id] = data[0].version
+            baseRef.current[id] = snap
+          } else {
+            const result = await mergeWithRemote(id, snap)
+            if (result === 'merged') merged = true
+            else if (result === 'conflict') conflicts.push(project)
+            else {
+              failed = true
+              dirtyRef.current.add(id)
+            }
+          }
+        }
+
+        // รวมอัตโนมัติไม่ได้ (หรือไม่มีสิทธิ์แก้ไข) → โหลดข้อมูลล่าสุดมาแทน
+        for (const project of conflicts) {
+          const { data: row } = await supabase.from('projects').select('*').eq('id', project.id).maybeSingle()
+          if (row) adoptRemote(row)
+        }
+      } finally {
+        savingRef.current = false
+      }
+
+      if (merged) notify('มีผู้ใช้อื่นแก้ไขพร้อมกัน ระบบรวมการแก้ไขให้อัตโนมัติแล้ว')
+
+      if (conflicts.length) {
+        setSaveStatus('conflict')
+        alert(
+          `โปรเจกต์ ${conflicts.map((p) => `"${p.name}"`).join(', ')} ถูกแก้ไขจากที่อื่นในจุดเดียวกัน ` +
+          'หรือคุณไม่มีสิทธิ์แก้ไข ระบบโหลดข้อมูลล่าสุดมาแสดงแล้ว\n(การแก้ไขของคุณที่ชนกันจะไม่ถูกบันทึก)'
+        )
+      } else if (failed) {
+        setSaveStatus('error')
+        setTimeout(() => setRetryTick((t) => t + 1), 5000) // ลองใหม่ใน 5 วินาที
+      } else if (dirtyRef.current.size === 0) {
+        setSaveStatus('saved')
+      }
+
+      // การเปลี่ยนแปลงจากคนอื่นที่เข้ามาระหว่างบันทึก
+      const pending = [...pendingRefreshRef.current]
+      pendingRefreshRef.current.clear()
+      pending.forEach((id) => refreshProjectRef.current?.(id))
+    }
+
+    const timer = setTimeout(() => {
+      saveQueueRef.current = saveQueueRef.current.then(flushDirty).catch((error) => {
+        console.error('autosave error', error)
+        savingRef.current = false
+        setSaveStatus('error')
+      })
+    }, 700)
+
+    return () => clearTimeout(timer)
+  }, [projects, retryTick])
+
+  // 5) เตือนก่อนปิดแท็บถ้ายังบันทึกไม่เสร็จ
+  useEffect(() => {
+    const handler = (event) => {
+      if (saveStatus === 'saving' || saveStatus === 'error') {
+        event.preventDefault()
+        event.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [saveStatus])
 
   const diagram = useMemo(() => {
     const cols = Math.min(MAX_COLS, Math.max(entities.length, 1))
@@ -810,6 +1532,93 @@ function App() {
 
     return { nodes: Object.values(nodes), edges, width, height }
   }, [entities, relationships])
+
+  // ===== Export / Import =====
+  const baseName = safeFileName(selectedProject?.name ?? 'project')
+  const diagramLayout = { NODE_W, HEADER_H, ROW_H, COLOR_HEX, COLOR_TINT }
+  // ไม่ส่งป้ายชื่อความสัมพันธ์ไปในไฟล์ภาพ ให้ตรงกับที่แสดงบนหน้า ER Diagram
+  const exportableDiagram = { ...diagram, edges: diagram.edges.map((edge) => ({ ...edge, label: '' })) }
+
+  const exportSql = (dialect) =>
+    downloadFile(
+      `${baseName}_${dialect}.sql`,
+      buildSql(entities, relationships, dialect, selectedProject?.name ?? ''),
+      'text/sql;charset=utf-8',
+    )
+
+  const exportDictionary = () =>
+    downloadFile(
+      `${baseName}_data_dictionary.csv`,
+      buildDictionaryCsv(entities, relationships),
+      'text/csv;charset=utf-8',
+    )
+
+  const exportDiagramSvg = () =>
+    downloadFile(
+      `${baseName}_er_diagram.svg`,
+      diagramToSvg(exportableDiagram, diagramLayout),
+      'image/svg+xml;charset=utf-8',
+    )
+
+  const exportDiagramPng = async () => {
+    try {
+      const svg = diagramToSvg(exportableDiagram, diagramLayout)
+      const blob = await svgToPngBlob(svg, Math.ceil(diagram.width), Math.ceil(diagram.height), 2)
+      downloadFile(`${baseName}_er_diagram.png`, blob)
+    } catch (error) {
+      alert('ส่งออก PNG ไม่สำเร็จ: ' + error.message)
+    }
+  }
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (file.size > 5 * 1024 * 1024) {
+      setImportPreview({ fileName: file.name, rows: [], warnings: [], error: 'ไฟล์ใหญ่เกิน 5 MB' })
+      return
+    }
+    if (!/\.(csv|tsv|txt)$/i.test(file.name)) {
+      setImportPreview({
+        fileName: file.name,
+        rows: [],
+        warnings: [],
+        error: 'รองรับเฉพาะไฟล์ .csv (ถ้าเป็น Excel ให้บันทึกเป็น CSV UTF-8 ก่อน)',
+      })
+      return
+    }
+
+    try {
+      const text = await file.text()
+      setImportPreview({ fileName: file.name, ...parseImportCsv(text) })
+    } catch (error) {
+      setImportPreview({ fileName: file.name, rows: [], warnings: [], error: 'อ่านไฟล์ไม่สำเร็จ: ' + error.message })
+    }
+  }
+
+  const importResult = useMemo(
+    () => (importPreview?.rows?.length ? mergeImport(entities, importPreview.rows, makeImportEntity) : null),
+    [importPreview, entities],
+  )
+
+  const confirmImport = () => {
+    if (!canEdit || !importPreview?.rows?.length) return
+    const result = mergeImport(entities, importPreview.rows, makeImportEntity)
+    setEntities(result.entities)
+    logChange(
+      'create',
+      'import',
+      importPreview.fileName,
+      `นำเข้า CSV: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column (ข้าม ${result.skippedFields} ที่ซ้ำ)`,
+    )
+    notify(
+      `นำเข้าสำเร็จ: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column`,
+      'success',
+    )
+    setImportPreview(null)
+  }
+
   if (session === undefined) {
     return (
       <div className="login-loading">
@@ -953,7 +1762,9 @@ function App() {
                 </div>
                 <div className="workspace-copy">
                   <strong>{selectedProject.name}</strong>
-                  <span>{entities.length} entities · {relationships.length} links</span>
+                  <span>
+                    {entities.length} entities · {relationships.length} links · {ROLE_LABEL[myRole]}
+                  </span>
                 </div>
                 <ChevronDown size={16} className={showProjectMenu ? 'chevron-open' : ''} />
               </button>
@@ -989,13 +1800,15 @@ function App() {
 
                     <div className="workspace-dropdown-divider" />
 
-                    <button
-                      type="button"
-                      className="workspace-action"
-                      onClick={() => openProjectModal(selectedProject)}
-                    >
-                      <Pencil size={15} /> แก้ไขโปรเจกต์นี้
-                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        className="workspace-action"
+                        onClick={() => openProjectModal(selectedProject)}
+                      >
+                        <Pencil size={15} /> แก้ไขโปรเจกต์นี้
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="workspace-action"
@@ -1003,6 +1816,18 @@ function App() {
                     >
                       <Plus size={15} /> สร้างโปรเจกต์ใหม่
                     </button>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        className="workspace-action workspace-action-danger"
+                        onClick={() => {
+                          setShowProjectMenu(false)
+                          handleDeleteProject(selectedProject)
+                        }}
+                      >
+                        <Trash2 size={15} /> ลบโปรเจกต์นี้
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -1019,6 +1844,9 @@ function App() {
                   <Icon size={18} />
                   <span>{label}</span>
                   {label === 'Entities' && <span className="nav-count">{entities.length}</span>}
+                  {label === 'Members' && (members[selectedProject.id]?.length ?? 0) > 0 && (
+                    <span className="nav-count">{members[selectedProject.id].length}</span>
+                  )}
                 </button>
               ))}
             </nav>
@@ -1042,17 +1870,114 @@ function App() {
             )}
           </div>
           <div className="topbar-actions">
-            <span className="status-pill">
-              <span className="status-dot" /> Demo data
+            <span className={`status-pill save-${saveStatus}`}>
+              <span className="status-dot" />
+              {{
+                idle: realtimeStatus === 'SUBSCRIBED' ? 'Live sync' : 'Cloud sync',
+                saving: 'Saving…',
+                saved: 'Saved',
+                error: 'Save failed',
+                conflict: 'Conflict',
+              }[saveStatus]}
             </span>
-            <button
-              className="text-button"
-              onClick={() => handleLogout()}
-            >
-              Logout
-            </button>
-            <button className="icon-button" aria-label="Settings"><Settings2 size={18} /></button>
-            <div className="avatar">P</div>
+
+            <div className="notif-wrap">
+              <button
+                className="icon-button"
+                aria-label="Notifications"
+                title="การแจ้งเตือน"
+                onClick={toggleNotif}
+              >
+                <Bell size={18} />
+              </button>
+              {unreadCount > 0 && <span className="notif-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+
+              {showNotif && (
+                <>
+                  <div className="workspace-backdrop" onClick={toggleNotif} />
+                  <div className="notif-dropdown">
+                    <div className="notif-title">
+                      <span>NOTIFICATIONS</span>
+                      {notifications.length > 0 && (
+                        <span>
+                          <button type="button" onClick={markAllRead}>อ่านทั้งหมด</button>
+                          {' · '}
+                          <button type="button" onClick={() => setNotifications([])}>ล้างทั้งหมด</button>
+                        </span>
+                      )}
+                    </div>
+                    {notifications.length === 0 && <div className="notif-empty">ยังไม่มีการแจ้งเตือน</div>}
+                    {notifications.map((n) => (
+                      <div key={n.id} className={`notif-item ${n.read ? '' : 'unread'}`}>
+                        {n.text}
+                        <small>{new Date(n.at).toLocaleString('th-TH')}</small>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="notif-wrap">
+              <button
+                type="button"
+                className="avatar avatar-button"
+                title={displayName}
+                aria-label="Profile"
+                onClick={() => setShowProfile((open) => !open)}
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+                ) : (
+                  displayName.charAt(0).toUpperCase() || 'U'
+                )}
+              </button>
+
+              {showProfile && (
+                <>
+                  <div className="workspace-backdrop" onClick={() => setShowProfile(false)} />
+                  <div className="notif-dropdown profile-dropdown">
+                    <div className="profile-head">
+                      <div className="profile-avatar">
+                        {avatarUrl ? (
+                          <img src={avatarUrl} alt="" referrerPolicy="no-referrer" />
+                        ) : (
+                          displayName.charAt(0).toUpperCase() || 'U'
+                        )}
+                      </div>
+                      <div className="profile-info">
+                        <strong>{displayName}</strong>
+                        <small>{user?.email}</small>
+                      </div>
+                    </div>
+
+                    <div className="profile-row">
+                      <span>โปรเจกต์ปัจจุบัน</span>
+                      <strong>{selectedProject ? selectedProject.name : 'ยังไม่ได้เลือก'}</strong>
+                    </div>
+
+                    <div className="profile-row">
+                      <span>สิทธิ์ของคุณ</span>
+                      {selectedProject ? (
+                        <span className={`role-badge role-${myRole}`}>
+                          {ROLE_LABEL[myRole]}{isOwner ? ' · เจ้าของ' : ''}
+                        </span>
+                      ) : (
+                        <strong>-</strong>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="settings-row settings-btn settings-danger"
+                      onClick={() => { setShowProfile(false); handleLogout() }}
+                    >
+                      ออกจากระบบ
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1069,62 +1994,78 @@ function App() {
                 </div>
               </div>
 
-              <div className="project-grid">
-                {projects.map((project) => (
-                  <div
-                    className="project-card"
-                    key={project.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openProject(project)}
-                    onKeyDown={(event) => event.key === 'Enter' && openProject(project)}
+              {loadingProjects ? (
+                <p className="empty-state">กำลังโหลดโปรเจกต์...</p>
+              ) : (
+                <div className="project-grid">
+                  {projects.map((project) => {
+                    const role = roleOf(project)
+                    const owner = Boolean(project.userId) && project.userId === user?.id
+                    return (
+                      <div
+                        className="project-card"
+                        key={project.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openProject(project)}
+                        onKeyDown={(event) => event.key === 'Enter' && openProject(project)}
+                      >
+                        <div className="project-card-icon"><FolderKanban size={26} /></div>
+                        <strong>{project.name}</strong>
+                        <p>{project.description || 'ไม่มีรายละเอียด'}</p>
+                        <div className="project-card-meta">
+                          <span>{project.entities.length} entities</span>
+                          <span>{project.relationships.length} links</span>
+                        </div>
+                        <span className={`role-badge role-${role}`}>{ROLE_LABEL[role]}</span>
+
+                        {(role === 'admin' || owner) && (
+                          <div className="project-card-actions">
+                            {role === 'admin' && (
+                              <button
+                                type="button"
+                                className="project-card-edit"
+                                title="แก้ไขโปรเจกต์"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openProjectModal(project)
+                                }}
+                              >
+                                <Pencil size={15} />
+                              </button>
+                            )}
+                            {owner && (
+                              <button
+                                type="button"
+                                className="project-card-delete"
+                                title="ลบโปรเจกต์"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  handleDeleteProject(project)
+                                }}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  <button
+                    type="button"
+                    className="project-card project-card-new"
+                    onClick={() => openProjectModal()}
                   >
-                    <div className="project-card-icon"><FolderKanban size={26} /></div>
-                    <strong>{project.name}</strong>
-                    <p>{project.description || 'ไม่มีรายละเอียด'}</p>
-                    <div className="project-card-meta">
-                      <span>{project.entities.length} entities</span>
-                      <span>{project.relationships.length} links</span>
-                    </div>
-
-                    <div className="project-card-actions">
-                      <button
-                        type="button"
-                        className="project-card-edit"
-                        title="แก้ไขโปรเจกต์"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openProjectModal(project)
-                        }}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        className="project-card-delete"
-                        title="ลบโปรเจกต์"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleDeleteProject(project)
-                        }}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                <button
-                  type="button"
-                  className="project-card project-card-new"
-                  onClick={() => openProjectModal()}
-                >
-                  <Plus size={26} />
-                  <strong>สร้างโปรเจกต์ใหม่</strong>
-                </button>
-              </div>
+                    <Plus size={26} />
+                    <strong>สร้างโปรเจกต์ใหม่</strong>
+                  </button>
+                </div>
+              )}
             </>
           )}
+
           {selectedProject && (
             <>
               <div className="welcome-row">
@@ -1136,16 +2077,12 @@ function App() {
                 </div>
               </div>
 
-              {activePage === 'Overview' && (
-                <div className="notice-banner">
-                  <div className="notice-icon"><ShieldCheck size={20} /></div>
-                  <div>
-                    <strong>Documentation workspace</strong>
-                    <p>This version uses sample data. Verify field definitions against your actual database schema.</p>
-                  </div>
-                  <span className="notice-tag">DEMO</span>
+              {!canEdit && (
+                <div className="readonly-banner">
+                  คุณมีสิทธิ์ <strong>Viewer</strong> ในโปรเจกต์นี้ — ดูและส่งออกข้อมูลได้ แต่แก้ไขไม่ได้
                 </div>
               )}
+
               {activePage === 'Overview' && (
                 <div className="stats-grid">
                   <StatCard icon={Database} label="Total Entities" value={entities.length} note="Database tables" color="blue" />
@@ -1157,7 +2094,7 @@ function App() {
             </>
           )}
 
-          {activePage === 'Overview' && (
+          {selectedProject && activePage === 'Overview' && (
             <div className="content-grid">
               <section className="panel entity-panel">
                 <div className="panel-heading">
@@ -1188,189 +2125,210 @@ function App() {
                   </div>
                 </div>
 
-                <div className="quick-link">
+                <div className="quick-link" onClick={() => setActivePage('ER Diagram')}>
                   <span className="quick-icon purple"><GitBranch size={18} /></span>
                   <span><strong>ER Diagram</strong><small>Explore table relationships</small></span>
                 </div>
-                <div className="quick-link">
+                <div className="quick-link" onClick={() => setActivePage('Data Dictionary')}>
                   <span className="quick-icon green"><BookOpen size={18} /></span>
                   <span><strong>Data Dictionary</strong><small>Browse every field</small></span>
                 </div>
-                <div className="quick-link">
+                <div className="quick-link" onClick={() => setActivePage('Relationships')}>
                   <span className="quick-icon blue"><Link2 size={18} /></span>
                   <span><strong>Relationships</strong><small>Understand data connections</small></span>
-                </div>
-
-                <div className="review-note">
-                  <ArrowDownRight size={17} />
-                  <span>Keep definitions clear, consistent, and up to date.</span>
                 </div>
               </section>
             </div>
           )}
 
-          {activePage === 'Entities' && (
-            <div className="content-grid entity-detail-grid">
-              <section className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <h2><Database size={19} /> Entities</h2>
-                    <p>Select a table to see its fields</p>
-                  </div>
-
-                  <button
-                    className="primary-button"
-                    onClick={() => openEntityModal()}
-                  >
-                    <Plus size={17} /> New Entity
-                  </button>
-                </div>
-
-
-                <div className="search-box">
-                  <Search size={17} />
-                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search entities or fields..." />
-                </div>
-                <div className="entity-list">
-                  {filteredEntities.map((entity) => (
-                    <button key={entity.name} className={`entity-row ${selectedEntity === entity.name ? 'selected' : ''}`} onClick={() => setSelectedEntity(entity.name)}>
-                      <div className={`entity-icon ${entity.color}`}><entity.icon size={19} /></div>
-                      <div className="entity-row-copy"><strong>{entity.name}</strong><span>{entity.description}</span></div>
-                      <span className="field-count">{entity.fields.length} fields</span>
-                    </button>
-                  ))}
-                  {filteredEntities.length === 0 && <p className="empty-state">No matching entities found.</p>}
-                </div>
-              </section>
-              <section className="panel detail-panel">
-                {entities.length === 0 ? (
-                  <div className="empty-state">
-                    <Database size={30} />
-                    <p>No entities yet</p>
-                    <span>Create a new Entity to start documenting your database.</span>
-                    <button
-                      className="primary-button"
-                      onClick={() => openEntityModal()}
-                    >
+          {selectedProject && activePage === 'Entities' && (
+            entities.length === 0 ? (
+              <section className="panel empty-panel">
+                <div className="empty-state big">
+                  <Database size={34} />
+                  <p>No entities yet</p>
+                  <span>
+                    {canEdit
+                      ? 'Create your first Entity to start documenting this database.'
+                      : 'ยังไม่มี Entity ในโปรเจกต์นี้'}
+                  </span>
+                  {canEdit && (
+                    <button className="primary-button" onClick={() => openEntityModal()}>
                       <Plus size={17} /> New Entity
                     </button>
+                  )}
+                </div>
+              </section>
+            ) : (
+              <div className="content-grid entity-detail-grid">
+                <section className="panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2><Database size={19} /> Entities</h2>
+                      <p>Select a table to see its fields</p>
+                    </div>
+                    {canEdit && (
+                      <button className="primary-button" onClick={() => openEntityModal()}>
+                        <Plus size={17} /> New Entity
+                      </button>
+                    )}
                   </div>
-                ) : (
-                  <>
-                    <div className="detail-header">
-                      <div className={`entity-icon large ${activeEntity.color}`}><activeEntity.icon size={22} /></div>
-                      <div><div className="eyebrow">ENTITY DETAILS</div><h2>{activeEntity.name}</h2><p>{activeEntity.description}</p></div>
+
+                  <div className="search-box">
+                    <Search size={17} />
+                    <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search entities or fields..." />
+                  </div>
+                  <div className="entity-list">
+                    {filteredEntities.map((entity) => (
+                      <button key={entity.name} className={`entity-row ${activeEntity.name === entity.name ? 'selected' : ''}`} onClick={() => setSelectedEntity(entity.name)}>
+                        <div className={`entity-icon ${entity.color}`}><entity.icon size={19} /></div>
+                        <div className="entity-row-copy"><strong>{entity.name}</strong><span>{entity.description}</span></div>
+                        <span className="field-count">{entity.fields.length} fields</span>
+                      </button>
+                    ))}
+                    {filteredEntities.length === 0 && <p className="empty-state">No matching entities found.</p>}
+                  </div>
+                </section>
+
+                <section className="panel detail-panel">
+                  <div className="detail-header">
+                    <div className={`entity-icon large ${activeEntity.color}`}><activeEntity.icon size={22} /></div>
+                    <div>
+                      <div className="eyebrow">ENTITY DETAILS</div>
+                      <h2>{activeEntity.name}</h2>
+                      <p>{activeEntity.description}</p>
+                    </div>
+                  </div>
+
+                  <div className="entity-notes">
+                    <label htmlFor="entity-notes">NOTES</label>
+                    <textarea
+                      id="entity-notes"
+                      rows={3}
+                      readOnly={!canEdit}
+                      placeholder="โน้ตเพิ่มเติมของ Entity นี้ เช่น ใช้งานตอนไหน, ข้อควรระวัง..."
+                      value={activeEntity.notes ?? ''}
+                      onChange={(event) =>
+                        setEntities((current) =>
+                          current.map((entity) =>
+                            entity.name === activeEntity.name
+                              ? { ...entity, notes: event.target.value }
+                              : entity
+                          )
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="entity-toolbar">
+                    <div className="search-box column-search">
+                      <Search size={17} />
+                      <input
+                        value={columnSearch}
+                        onChange={(event) => setColumnSearch(event.target.value)}
+                        placeholder="Search column name or description..."
+                      />
                     </div>
 
-                    <div className="entity-toolbar">
-                      <div className="search-box column-search">
-                        <Search size={17} />
-                        <input
-                          value={columnSearch}
-                          onChange={(event) => setColumnSearch(event.target.value)}
-                          placeholder="Search column name or description..."
-                        />
-                      </div>
+                    <select
+                      className="filter-select"
+                      aria-label="Filter by type"
+                      value={columnTypeFilter}
+                      onChange={(event) => setColumnTypeFilter(event.target.value)}
+                    >
+                      <option value="all">All Types</option>
+                      {[...new Set((activeEntity?.fields ?? []).map((field) => field.type))].map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
 
-                      <select
-                        className="filter-select"
-                        aria-label="Filter by type"
-                        value={columnTypeFilter}
-                        onChange={(event) => setColumnTypeFilter(event.target.value)}
-                      >
-                        <option value="all">All Types</option>
-                        {[...new Set((activeEntity?.fields ?? []).map((field) => field.type))].map((type) => (
-                          <option key={type} value={type}>{type}</option>
-                        ))}
-                      </select>
-
-                      <span className="result-count">{filteredActiveFields.length} columns</span>
-
+                    {canEdit && (
                       <div className="toolbar-actions">
                         <button className="secondary-button" onClick={() => openEntityModal(activeEntity)}>
                           Edit Entity
                         </button>
-                        <button className="secondary-button danger-button" onClick={() => handleDeleteEntity(activeEntity.name)}>
-                          Delete
-                        </button>
-                        <button className="primary-button" onClick={() => openColumnModal()}>
-                          <Plus size={17} /> Add Column
-                        </button>
+                        <div className="toolbar-actions-right">
+                          <button className="secondary-button danger-button" onClick={() => handleDeleteEntity(activeEntity.name)}>
+                            Delete Entity
+                          </button>
+                          <button className="primary-button" onClick={() => openColumnModal()}>
+                            <Plus size={17} /> Add Column
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
+                  </div>
 
-
-
-                    <div className="field-table-wrap">
-                      <table className="field-table">
-                        <thead>
-                          <tr>
-                            <th>Field</th>
-                            <th>Type</th>
-                            <th>Key</th>
-                            <th>Null</th>
-                            <th>Default</th>
-                            <th>Description</th>
-                            <th>Actions</th>
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {filteredActiveFields.map((field) => (
-                            <tr key={field.name}>
-                              <td className="field-name">{field.name}</td>
-                              <td><span className="type-tag">{field.type}</span></td>
+                  <div className="field-table-wrap">
+                    <table className="field-table">
+                      <thead>
+                        <tr>
+                          <th>Field</th>
+                          <th>Type</th>
+                          <th>Key</th>
+                          <th>Null</th>
+                          <th>Default</th>
+                          <th>Description</th>
+                          {canEdit && <th>Actions</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredActiveFields.map((field) => (
+                          <tr key={field.name}>
+                            <td className="field-name">{field.name}</td>
+                            <td><span className="type-tag">{field.type}</span></td>
+                            <td>
+                              {field.key && (
+                                <span className={`key-tag ${field.key.toLowerCase()}`}>{field.key}</span>
+                              )}
+                            </td>
+                            <td>{field.nullable === false ? 'NOT NULL' : 'NULL'}</td>
+                            <td>{field.defaultValue || '-'}</td>
+                            <td>{field.description}</td>
+                            {canEdit && (
                               <td>
-                                {field.key && (
-                                  <span className={`key-tag ${field.key.toLowerCase()}`}>
-                                    {field.key}
-                                  </span>
-                                )}
-                              </td>
-
-                              <td>{field.nullable === false ? 'NOT NULL' : 'NULL'}</td>
-                              <td>{field.defaultValue || '-'}</td>
-                              <td>{field.description}</td>
-
-                              <td>
-                                <button
-                                  className="secondary-button"
-                                  onClick={() => openColumnModal(field)}
-                                >
+                                <button className="secondary-button" onClick={() => openColumnModal(field)}>
                                   Edit
                                 </button>
-
-                                <button
-                                  className="secondary-button"
-                                  onClick={() => handleDeleteColumn(field.name)}
-                                >
+                                <button className="secondary-button" onClick={() => handleDeleteColumn(field.name)}>
                                   Delete
                                 </button>
-
                               </td>
-                            </tr>
-                          ))}
-                        </tbody>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
 
-                      </table>
-                    </div>
-                    <div className="detail-footer">
-                      <span>
-                        <Table2 size={15} /> {activeEntity.fields.length} fields documented
-                      </span>
-                      <span className="draft-label">Draft schema</span>
-                    </div>
-                  </>
-                )}
-              </section>
-            </div>
+                  <div className="detail-footer">
+                    <span>
+                      <Table2 size={15} />{' '}
+                      {filteredActiveFields.length === activeEntity.fields.length
+                        ? `${activeEntity.fields.length} fields documented`
+                        : `Showing ${filteredActiveFields.length} of ${activeEntity.fields.length} fields`}
+                    </span>
+                  </div>
+                </section>
+              </div>
+            )
           )}
 
-          {activePage === 'Data Dictionary' && (
+          {selectedProject && activePage === 'Data Dictionary' && (
             <section className="panel">
               <div className="panel-heading">
-                <div><h2><BookOpen size={19} /> Data Dictionary</h2><p>Search fields across all documented entities</p></div>
-                <span className="result-count">{filteredFields.length} fields</span>
+                <div><h2><BookOpen size={19} /> Data Dictionary</h2><p>Search fields across all documented entities · คลิกหัวคอลัมน์เพื่อเรียงข้อมูล</p></div>
+                <div className="panel-heading-actions">
+                  <span className="result-count">{sortedFields.length} fields</span>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={exportDictionary}
+                    disabled={!allFields.length}
+                  >
+                    <Download size={14} /> Export CSV
+                  </button>
+                </div>
               </div>
               <div className="search-box dictionary-search">
                 <Search size={17} />
@@ -1378,17 +2336,25 @@ function App() {
               </div>
               <div className="field-table-wrap">
                 <table className="field-table">
-                  <thead><tr><th>Field</th><th>Entity</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
-                  <tbody>{filteredFields.map((field) => (
+                  <thead>
+                    <tr>
+                      {sortHeader('Field', 'name')}
+                      {sortHeader('Entity', 'entity')}
+                      {sortHeader('Type', 'type')}
+                      {sortHeader('Key', 'key')}
+                      {sortHeader('Description', 'description')}
+                    </tr>
+                  </thead>
+                  <tbody>{sortedFields.map((field) => (
                     <tr key={`${field.entity}-${field.name}`}><td className="field-name">{field.name}</td><td><span className={`entity-badge ${field.color}`}>{field.entity}</span></td><td><span className="type-tag">{field.type}</span></td><td>{field.key && <span className={`key-tag ${field.key.toLowerCase()}`}>{field.key}</span>}</td><td>{field.description}</td></tr>
                   ))}</tbody>
                 </table>
-                {filteredFields.length === 0 && <p className="empty-state">No matching fields found.</p>}
+                {sortedFields.length === 0 && <p className="empty-state">No matching fields found.</p>}
               </div>
             </section>
           )}
 
-          {activePage === 'Relationships' && (
+          {selectedProject && activePage === 'Relationships' && (
             <section className="panel">
               <div className="panel-heading">
                 <div>
@@ -1400,13 +2366,15 @@ function App() {
                   </p>
                 </div>
 
-                <button
-                  className="primary-button"
-                  onClick={() => openRelationshipModal()}
-                >
-                  <Plus size={16} />
-                  Add Relationship
-                </button>
+                {canEdit && (
+                  <button
+                    className="primary-button"
+                    onClick={() => openRelationshipModal()}
+                  >
+                    <Plus size={16} />
+                    Add Relationship
+                  </button>
+                )}
               </div>
 
               <div className="relationship-list">
@@ -1451,25 +2419,27 @@ function App() {
                       <p>{rel.detail || 'No description'}</p>
                     </div>
 
-                    <div className="relationship-actions">
-                      <button
-                        type="button"
-                        title="Edit Relationship"
-                        onClick={() => openRelationshipModal(rel)}
-                      >
-                        <Pencil size={16} />
-                      </button>
+                    {canEdit && (
+                      <div className="relationship-actions">
+                        <button
+                          type="button"
+                          title="Edit Relationship"
+                          onClick={() => openRelationshipModal(rel)}
+                        >
+                          <Pencil size={16} />
+                        </button>
 
-                      <button
-                        type="button"
-                        title="Delete Relationship"
-                        onClick={() =>
-                          handleDeleteRelationship(rel.id)
-                        }
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                        <button
+                          type="button"
+                          title="Delete Relationship"
+                          onClick={() =>
+                            handleDeleteRelationship(rel.id)
+                          }
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -1477,30 +2447,49 @@ function App() {
                   <div className="empty-state">
                     <Link2 size={30} />
                     <p>No relationships yet</p>
-                    <span>
-                      Click Add Relationship to create your first connection.
-                    </span>
+                    {canEdit && (
+                      <span>
+                        Click Add Relationship to create your first connection.
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
             </section>
           )}
 
-
-          {activePage === 'ER Diagram' && (
+          {selectedProject && activePage === 'ER Diagram' && (
             <section className="panel diagram-panel">
               <div className="panel-heading">
                 <div>
                   <h2><GitBranch size={19} /> Entity Relationship Diagram</h2>
                   <p>Diagram updates automatically from your entities and relationships</p>
                 </div>
-                <span className="result-count">
-                  {entities.length} entities · {diagram.edges.length} links
-                </span>
+                <div className="panel-heading-actions">
+                  <span className="result-count">
+                    {entities.length} entities · {diagram.edges.length} links
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={exportDiagramPng}
+                    disabled={!entities.length}
+                  >
+                    <Download size={14} /> PNG
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={exportDiagramSvg}
+                    disabled={!entities.length}
+                  >
+                    <Download size={14} /> SVG
+                  </button>
+                </div>
               </div>
 
               {entities.length === 0 ? (
-                <div className="empty-state">
+                <div className="empty-state big">
                   <GitBranch size={30} />
                   <p>No entities to display</p>
                   <span>Create an entity first, then it will appear here.</span>
@@ -1509,31 +2498,18 @@ function App() {
                 <div className="diagram-canvas">
                   <div className="er-board" style={{ width: diagram.width, height: diagram.height }}>
                     <svg className="er-lines" width={diagram.width} height={diagram.height}>
-                      {diagram.edges.map((edge) => {
-                        const text = edge.label || ''
-                        const pillW = text.length * 6.5 + 18
-                        return (
-                          <g key={edge.id}>
-                            <path d={edge.d} stroke={edge.color} strokeWidth="2" fill="none" />
-                            <circle cx={edge.ax} cy={edge.ay} r="3.5" fill={edge.color} />
-                            <circle cx={edge.bx} cy={edge.by} r="3.5" fill={edge.color} />
+                      {diagram.edges.map((edge) => (
+                        <g key={edge.id}>
+                          <path d={edge.d} stroke={edge.color} strokeWidth="2" fill="none" />
+                          <circle cx={edge.ax} cy={edge.ay} r="3.5" fill={edge.color} />
+                          <circle cx={edge.bx} cy={edge.by} r="3.5" fill={edge.color} />
 
-                            <text x={edge.ax + edge.dirA * 14} y={edge.ay - 6} fontSize="11" fontWeight="700"
-                              textAnchor="middle" fill={edge.color}>{edge.fromCard}</text>
-                            <text x={edge.bx + edge.dirB * 14} y={edge.by - 6} fontSize="11" fontWeight="700"
-                              textAnchor="middle" fill={edge.color}>{edge.toCard}</text>
-
-                            {text && (
-                              <>
-                                <rect x={edge.mx - pillW / 2} y={edge.my - 11} width={pillW} height="22"
-                                  rx="11" fill="#fff" stroke={edge.color} strokeWidth="1" />
-                                <text x={edge.mx} y={edge.my + 4} fontSize="10.5" textAnchor="middle"
-                                  fill={edge.color}>{text}</text>
-                              </>
-                            )}
-                          </g>
-                        )
-                      })}
+                          <text x={edge.ax + edge.dirA * 14} y={edge.ay - 6} fontSize="11" fontWeight="700"
+                            textAnchor="middle" fill={edge.color}>{edge.fromCard}</text>
+                          <text x={edge.bx + edge.dirB * 14} y={edge.by - 6} fontSize="11" fontWeight="700"
+                            textAnchor="middle" fill={edge.color}>{edge.toCard}</text>
+                        </g>
+                      ))}
                     </svg>
 
                     {diagram.nodes.map(({ entity, x, y }) => {
@@ -1574,32 +2550,277 @@ function App() {
                   </div>
                 </div>
               )}
+
               <p className="diagram-footnote">
                 Conceptual relationship view. Confirm the foreign keys and cardinality against the actual database schema.
               </p>
             </section>
           )}
 
+          {selectedProject && activePage === 'Documentation' && (
+            <Documentation
+              key={selectedProject.id}
+              docs={docs}
+              setDocs={setDocs}
+              entities={entities}
+              relationships={relationships}
+              displayName={displayName}
+              onLog={logChange}
+              readOnly={!canEdit}
+            />
+          )}
 
-          {activePage === 'Changelog' && (
+          {selectedProject && activePage === 'Import / Export' && (
+            <div className="io-grid">
+              <section className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2><Download size={19} /> Export</h2>
+                    <p>ดาวน์โหลดข้อมูลของโปรเจกต์นี้ออกไปใช้งานต่อ</p>
+                  </div>
+                </div>
+                <div className="io-list">
+                  <div className="io-row">
+                    <div>
+                      <strong>SQL script — PostgreSQL</strong>
+                      <small>CREATE TABLE, PRIMARY KEY, UNIQUE, COMMENT และ FOREIGN KEY จาก Relationship</small>
+                    </div>
+                    <button className="secondary-button" onClick={() => exportSql('postgres')} disabled={!entities.length}>
+                      Download .sql
+                    </button>
+                  </div>
+                  <div className="io-row">
+                    <div>
+                      <strong>SQL script — MySQL / MariaDB</strong>
+                      <small>ชนิดข้อมูลและ COMMENT แบบ MySQL</small>
+                    </div>
+                    <button className="secondary-button" onClick={() => exportSql('mysql')} disabled={!entities.length}>
+                      Download .sql
+                    </button>
+                  </div>
+                  <div className="io-row">
+                    <div>
+                      <strong>Data Dictionary (CSV)</strong>
+                      <small>เปิดใน Excel ได้ (รองรับภาษาไทย) — ใช้เป็นไฟล์สำหรับนำเข้ากลับได้ด้วย</small>
+                    </div>
+                    <button className="secondary-button" onClick={exportDictionary} disabled={!allFields.length}>
+                      Download .csv
+                    </button>
+                  </div>
+                  <div className="io-row">
+                    <div>
+                      <strong>ER Diagram — PNG</strong>
+                      <small>ภาพความละเอียด 2 เท่า สำหรับใส่เอกสารหรือสไลด์</small>
+                    </div>
+                    <button className="secondary-button" onClick={exportDiagramPng} disabled={!entities.length}>
+                      Download .png
+                    </button>
+                  </div>
+                  <div className="io-row">
+                    <div>
+                      <strong>ER Diagram — SVG</strong>
+                      <small>ภาพเวกเตอร์ ขยายได้ไม่แตก</small>
+                    </div>
+                    <button className="secondary-button" onClick={exportDiagramSvg} disabled={!entities.length}>
+                      Download .svg
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2><Upload size={19} /> Import</h2>
+                    <p>นำเข้า Entity และ Column จากไฟล์ CSV (ข้ามรายการที่ชื่อซ้ำ ไม่เขียนทับของเดิม)</p>
+                  </div>
+                </div>
+                <div className="io-list">
+                  <div className="io-row">
+                    <div>
+                      <strong>เทมเพลต CSV</strong>
+                      <small>คอลัมน์: Entity, Field, Type, Key, Nullable, Default, Description</small>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      onClick={() => downloadFile('import_template.csv', buildImportTemplate(), 'text/csv;charset=utf-8')}
+                    >
+                      Download template
+                    </button>
+                  </div>
+                  {canEdit ? (
+                    <div className="io-row">
+                      <div>
+                        <strong>เลือกไฟล์ที่จะนำเข้า</strong>
+                        <small>ไฟล์ Excel (.xlsx) ให้บันทึกเป็น CSV UTF-8 ก่อน · ไม่เกิน 5 MB</small>
+                      </div>
+                      <label className="secondary-button io-file">
+                        <Upload size={15} /> เลือกไฟล์ CSV
+                        <input type="file" accept=".csv,.tsv,.txt,text/csv" onChange={handleImportFile} />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="io-row">
+                      <div>
+                        <strong>นำเข้าข้อมูล</strong>
+                        <small>ต้องมีสิทธิ์ Editor หรือ Admin</small>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {importPreview && (
+                  <div className={`io-preview ${importPreview.error ? 'error' : ''}`}>
+                    <strong>{importPreview.fileName}</strong>
+                    {importPreview.error ? (
+                      <p>{importPreview.error}</p>
+                    ) : (
+                      <>
+                        <div className="io-preview-stats">
+                          <span>{importPreview.rows.length} แถว</span>
+                          <span>เพิ่ม Entity ใหม่ {importResult?.addedEntities ?? 0}</span>
+                          <span>เพิ่ม Column {importResult?.addedFields ?? 0}</span>
+                          <span>ข้าม (ซ้ำ) {importResult?.skippedFields ?? 0}</span>
+                        </div>
+
+                        {importPreview.warnings.length > 0 && (
+                          <ul className="io-warnings">
+                            {importPreview.warnings.slice(0, 50).map((w, i) => <li key={i}>{w}</li>)}
+                            {importPreview.warnings.length > 50 && (
+                              <li>…และอีก {importPreview.warnings.length - 50} รายการ</li>
+                            )}
+                          </ul>
+                        )}
+
+                        <div className="field-table-wrap">
+                          <table className="field-table">
+                            <thead>
+                              <tr><th>Entity</th><th>Field</th><th>Type</th><th>Key</th><th>Null</th></tr>
+                            </thead>
+                            <tbody>
+                              {importPreview.rows.slice(0, 8).map((r, i) => (
+                                <tr key={i}>
+                                  <td>{r.entity}</td>
+                                  <td className="field-name">{r.field}</td>
+                                  <td><span className="type-tag">{r.type}</span></td>
+                                  <td>{r.key && <span className={`key-tag ${r.key.toLowerCase()}`}>{r.key}</span>}</td>
+                                  <td>{r.nullable ? 'NULL' : 'NOT NULL'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="io-preview-actions">
+                      {!importPreview.error && importPreview.rows.length > 0 && canEdit && (
+                        <button className="primary-button" onClick={confirmImport}>
+                          <Upload size={15} /> ยืนยันนำเข้า
+                        </button>
+                      )}
+                      <button className="secondary-button" onClick={() => setImportPreview(null)}>
+                        {importPreview.error ? 'ปิด' : 'ยกเลิก'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {selectedProject && activePage === 'Notes' && (
             <section className="panel">
-              <div className="panel-heading"><div><h2><Clock3 size={19} /> Changelog</h2><p>Documentation activity</p></div></div>
-              <div className="timeline">
-                <div className="timeline-item"><span className="timeline-dot" /><div><strong>Entity portal initialized</strong><p>Created the first dashboard and sample entity catalog.</p><small>Local demo · Not yet saved as an activity record</small></div></div>
-                <div className="timeline-item"><span className="timeline-dot purple-dot" /><div><strong>Schema documentation drafted</strong><p>USERS, POSTS, and FOLLOWS are displayed as example entities.</p><small>Review needed before production use</small></div></div>
+              <div className="panel-heading">
+                <div>
+                  <h2><FileText size={19} /> Project Notes</h2>
+                  <p>บันทึกข้อตกลง วิธีใช้ หรือข้อมูลเพิ่มเติมของโปรเจกต์นี้ (บันทึกอัตโนมัติ)</p>
+                </div>
+              </div>
+              <div className="notes-body">
+                <textarea
+                  rows={16}
+                  readOnly={!canEdit}
+                  placeholder="เช่น ข้อตกลงการตั้งชื่อตาราง, วิธีเชื่อมต่อฐานข้อมูล, สิ่งที่ต้องระวัง..."
+                  value={selectedProject.notes ?? ''}
+                  onFocus={() => { notesFocusRef.current = selectedProject.notes ?? '' }}
+                  onChange={(event) => setNotes(event.target.value)}
+                  onBlur={() => {
+                    if (notesFocusRef.current !== (selectedProject.notes ?? '')) {
+                      logChange('update', 'note', 'Project notes', 'แก้ไข Project Notes')
+                    }
+                  }}
+                />
               </div>
             </section>
           )}
+
+          {selectedProject && activePage === 'Changelog' && (
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2><Clock3 size={19} /> Changelog</h2>
+                  <p>ประวัติการแก้ไขของโปรเจกต์นี้</p>
+                </div>
+                <span className="result-count">{changelog.length} entries</span>
+              </div>
+
+              {changelog.length === 0 ? (
+                <div className="empty-state big">
+                  <Clock3 size={30} />
+                  <p>ยังไม่มีประวัติการแก้ไข</p>
+                  <span>เมื่อมีการเพิ่ม แก้ไข หรือลบข้อมูล รายการจะแสดงที่นี่</span>
+                </div>
+              ) : (
+                <div className="timeline">
+                  {changelog.map((log) => (
+                    <div className="timeline-item" key={log.id}>
+                      <span
+                        className={`timeline-dot ${log.action === 'delete'
+                          ? 'red-dot'
+                          : log.action === 'create'
+                            ? 'green-dot'
+                            : 'purple-dot'
+                          }`}
+                      />
+                      <div>
+                        <strong>{log.summary}</strong>
+                        <p>{log.target} · {log.name}</p>
+                        <small>
+                          {log.by || 'Unknown'} · {new Date(log.at).toLocaleString('th-TH')}
+                        </small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {selectedProject && activePage === 'Members' && (
+            <Members
+              project={selectedProject}
+              members={members[selectedProject.id] ?? []}
+              myRole={myRole}
+              myEmail={myEmail}
+              onInvite={inviteMember}
+              onChangeRole={changeMemberRole}
+              onRemove={removeMember}
+            />
+          )}
         </section>
-
-
-
 
         <footer className="app-footer">
           <span>Entity Portal <span className="footer-separator">·</span> Database Documentation</span>
-          <span><span className="footer-status-dot" /> Local demo workspace</span>
+          <span><span className="footer-status-dot" /> Cloud Workspace</span>
         </footer>
       </main>
+
+      <div className="toast-stack" aria-live="polite">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast toast-${t.kind}`}>{t.text}</div>
+        ))}
+      </div>
 
       {showEntityModal && (
         <div className="project-modal-overlay">
@@ -1653,8 +2874,6 @@ function App() {
         </div>
       )}
 
-
-
       {showProjectModal && (
         <div className="project-modal-overlay">
           <form className="project-modal" onSubmit={handleSaveProject}>
@@ -1703,7 +2922,6 @@ function App() {
           </form>
         </div>
       )}
-
 
       {showColumnModal && (
         <div className="project-modal-overlay">
@@ -1802,6 +3020,7 @@ function App() {
           </form>
         </div>
       )}
+
       {showRelationshipModal && (
         <div className="project-modal-overlay">
           <form
@@ -1828,12 +3047,12 @@ function App() {
               <select
                 value={relationshipFromEntity}
                 onChange={(event) => {
-                  const entityName = event.target.value
+                  const name = event.target.value
                   const entity = entities.find(
-                    (item) => item.name === entityName
+                    (item) => item.name === name
                   )
 
-                  setRelationshipFromEntity(entityName)
+                  setRelationshipFromEntity(name)
                   setRelationshipFromField(
                     entity?.fields[0]?.name || ''
                   )
@@ -1888,12 +3107,12 @@ function App() {
               <select
                 value={relationshipToEntity}
                 onChange={(event) => {
-                  const entityName = event.target.value
+                  const name = event.target.value
                   const entity = entities.find(
-                    (item) => item.name === entityName
+                    (item) => item.name === name
                   )
 
-                  setRelationshipToEntity(entityName)
+                  setRelationshipToEntity(name)
                   setRelationshipToField(
                     entity?.fields[0]?.name || ''
                   )
@@ -2013,4 +3232,5 @@ function StatCard({ icon: Icon, label, value, note, color }) {
     </div>
   )
 }
+
 export default App
