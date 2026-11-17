@@ -1,6 +1,18 @@
 import { useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, BookOpen, Eye, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  BookOpen,
+  ChevronDown,
+  Download,
+  Eye,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+} from 'lucide-react'
 import { renderMarkdown } from './markdown'
+import { exportPdf, exportWord } from './exportDoc'
 import './Documentation.css'
 
 const DEFAULT_GROUPS = ['DATABASE DOCUMENTATION', 'ENTITIES', 'TECHNICAL DOCUMENTATION']
@@ -195,6 +207,7 @@ export default function Documentation({
   entities = [],
   relationships = [],
   displayName = '',
+  projectName = '',
   onLog = () => {},
   readOnly = false,
 }) {
@@ -205,6 +218,7 @@ export default function Documentation({
   const [group, setGroup] = useState('')
   const [template, setTemplate] = useState('blank')
   const [search, setSearch] = useState('')
+  const [showExport, setShowExport] = useState(false)
 
   const textareaRef = useRef(null)
   const focusContentRef = useRef('')
@@ -231,6 +245,15 @@ export default function Documentation({
       })
     return [...map.entries()]
   }, [docs, search])
+
+  // ทุกหน้าเรียงตามกลุ่มเหมือน Sidebar (ใช้ตอนส่งออกรวมไฟล์เดียว)
+  const orderedDocs = () =>
+    allGroups.flatMap((g) => docs.filter((d) => (d.group || 'GENERAL') === g))
+
+  const runExport = (fn) => {
+    setShowExport(false)
+    fn()
+  }
 
   const missingEntities = entities.filter(
     (entity) =>
@@ -579,9 +602,61 @@ export default function Documentation({
                       )}
                     </>
                   )}
-                  <button type="button" className="secondary-button" onClick={exportMarkdown}>
-                    Export .md
-                  </button>
+
+                  <div className="notif-wrap">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setShowExport((open) => !open)}
+                      aria-expanded={showExport}
+                    >
+                      <Download size={14} /> Export <ChevronDown size={14} />
+                    </button>
+                    {showExport && (
+                      <>
+                        <div className="workspace-backdrop" onClick={() => setShowExport(false)} />
+                        <div className="workspace-dropdown docs-export-menu">
+                          <div className="workspace-dropdown-title">หน้านี้</div>
+                          <button type="button" className="workspace-action" onClick={() => runExport(exportMarkdown)}>
+                            Markdown (.md)
+                          </button>
+                          <button
+                            type="button"
+                            className="workspace-action"
+                            onClick={() => runExport(() => exportWord([activeDoc], projectName))}
+                          >
+                            Word (.doc)
+                          </button>
+                          <button
+                            type="button"
+                            className="workspace-action"
+                            onClick={() => runExport(() => exportPdf([activeDoc], projectName))}
+                          >
+                            PDF
+                          </button>
+
+                          <div className="workspace-dropdown-divider" />
+
+                          <div className="workspace-dropdown-title">ทุกหน้า ({docs.length})</div>
+                          <button
+                            type="button"
+                            className="workspace-action"
+                            onClick={() => runExport(() => exportWord(orderedDocs(), projectName))}
+                          >
+                            Word (.doc) รวมไฟล์เดียว
+                          </button>
+                          <button
+                            type="button"
+                            className="workspace-action"
+                            onClick={() => runExport(() => exportPdf(orderedDocs(), projectName))}
+                          >
+                            PDF รวมไฟล์เดียว
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   {!readOnly && (
                     <button type="button" className="icon-button docs-delete" title="ลบหน้านี้" onClick={handleDelete}>
                       <Trash2 size={16} />

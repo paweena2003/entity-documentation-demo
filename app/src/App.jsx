@@ -39,6 +39,7 @@ import './Features.css'
 import Documentation from './Documentation'
 import Members, { ROLE_LABEL } from './Members'
 import { mergeProject } from './sync'
+import { parseSqlSchema, applySqlImport } from './sqlImport'
 import {
   buildSql,
   buildDictionaryCsv,
@@ -1574,41 +1575,68 @@ function App() {
       alert('ส่งออก PNG ไม่สำเร็จ: ' + error.message)
     }
   }
-
   const handleImportFile = async (event) => {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
 
-    if (file.size > 5 * 1024 * 1024) {
-      setImportPreview({ fileName: file.name, rows: [], warnings: [], error: 'ไฟล์ใหญ่เกิน 5 MB' })
+    const isSql = /\.sql$/i.test(file.name)
+    const maxMb = isSql ? 25 : 5
+
+    if (file.size > maxMb * 1024 * 1024) {
+      setImportPreview({ fileName: file.name, rows: [], warnings: [], error: `ไฟล์ใหญ่เกิน ${maxMb} MB` })
       return
     }
-    if (!/\.(csv|tsv|txt)$/i.test(file.name)) {
+    if (!/\.(csv|tsv|txt|sql)$/i.test(file.name)) {
       setImportPreview({
         fileName: file.name,
         rows: [],
         warnings: [],
-        error: 'รองรับเฉพาะไฟล์ .csv (ถ้าเป็น Excel ให้บันทึกเป็น CSV UTF-8 ก่อน)',
+        error: 'รองรับเฉพาะไฟล์ .csv หรือ .sql (ถ้าเป็น Excel ให้บันทึกเป็น CSV UTF-8 ก่อน)',
       })
       return
     }
 
     try {
       const text = await file.text()
-      setImportPreview({ fileName: file.name, ...parseImportCsv(text) })
+      setImportPreview(
+        isSql
+          ? { fileName: file.name, kind: 'sql', ...parseSqlSchema(text) }
+          : { fileName: file.name, ...parseImportCsv(text) },
+      )
     } catch (error) {
       setImportPreview({ fileName: file.name, rows: [], warnings: [], error: 'อ่านไฟล์ไม่สำเร็จ: ' + error.message })
     }
   }
 
-  const importResult = useMemo(
-    () => (importPreview?.rows?.length ? mergeImport(entities, importPreview.rows, makeImportEntity) : null),
-    [importPreview, entities],
-  )
+  const importResult = useMemo(() => {
+    if (!importPreview?.rows?.length) return null
+    return importPreview.kind === 'sql'
+      ? applySqlImport(entities, relationships, importPreview, makeImportEntity)
+      : mergeImport(entities, importPreview.rows, makeImportEntity)
+  }, [importPreview, entities, relationships])
 
   const confirmImport = () => {
     if (!canEdit || !importPreview?.rows?.length) return
+
+    if (importPreview.kind === 'sql') {
+      const result = applySqlImport(entities, relationships, importPreview, makeImportEntity)
+      setEntities(result.entities)
+      if (result.addedRelationships) setRelationships(result.relationships)
+      logChange(
+        'create',
+        'import',
+        importPreview.fileName,
+        `นำเข้า SQL: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column, ${result.addedRelationships} Relationship (ข้าม ${result.skippedFields} Column ที่ซ้ำ)`,
+      )
+      notify(
+        `นำเข้าสำเร็จ: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column, ${result.addedRelationships} Relationship`,
+        'success',
+      )
+      setImportPreview(null)
+      return
+    }
+
     const result = mergeImport(entities, importPreview.rows, makeImportEntity)
     setEntities(result.entities)
     logChange(
@@ -2580,6 +2608,7 @@ function App() {
               entities={entities}
               relationships={relationships}
               displayName={displayName}
+              projectName={selectedProject.name}
               onLog={logChange}
               readOnly={!canEdit}
             />
@@ -2647,8 +2676,7 @@ function App() {
                 <div className="panel-heading">
                   <div>
                     <h2><Upload size={19} /> Import</h2>
-                    <p>นำเข้า Entity และ Column จากไฟล์ CSV (ข้ามรายการที่ชื่อซ้ำ ไม่เขียนทับของเดิม)</p>
-                  </div>
+                    <p>นำเข้า Entity, Column และ Relationship จากไฟล์ CSV หรือ SQL (ข้ามรายการที่ชื่อซ้ำ ไม่เขียนทับของเดิม)</p>                  </div>
                 </div>
                 <div className="io-list">
                   <div className="io-row">
@@ -2667,11 +2695,10 @@ function App() {
                     <div className="io-row">
                       <div>
                         <strong>เลือกไฟล์ที่จะนำเข้า</strong>
-                        <small>ไฟล์ Excel (.xlsx) ให้บันทึกเป็น CSV UTF-8 ก่อน · ไม่เกิน 5 MB</small>
-                      </div>
+                        <small>CSV ไม่เกิน 5 MB · SQL (CREATE TABLE) ไม่เกิน 25 MB · ไฟล์ Excel ให้บันทึกเป็น CSV UTF-8 ก่อน</small>                      </div>
                       <label className="secondary-button io-file">
-                        <Upload size={15} /> เลือกไฟล์ CSV
-                        <input type="file" accept=".csv,.tsv,.txt,text/csv" onChange={handleImportFile} />
+                        <Upload size={15} /> เลือกไฟล์ CSV / SQL
+                        <input type="file" accept=".csv,.tsv,.sql,.txt,text/csv" onChange={handleImportFile} />
                       </label>
                     </div>
                   ) : (
@@ -2692,9 +2719,12 @@ function App() {
                     ) : (
                       <>
                         <div className="io-preview-stats">
-                          <span>{importPreview.rows.length} แถว</span>
+                          <span>{importPreview.rows.length} {importPreview.kind === 'sql' ? 'Column' : 'แถว'}</span>
                           <span>เพิ่ม Entity ใหม่ {importResult?.addedEntities ?? 0}</span>
                           <span>เพิ่ม Column {importResult?.addedFields ?? 0}</span>
+                          {importPreview.kind === 'sql' && (
+                            <span>เพิ่ม Relationship {importResult?.addedRelationships ?? 0}</span>
+                          )}
                           <span>ข้าม (ซ้ำ) {importResult?.skippedFields ?? 0}</span>
                         </div>
 
