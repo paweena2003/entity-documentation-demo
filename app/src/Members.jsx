@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Mail, LogOut, Trash2, UserPlus, Users } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Check, Copy, Link2, LogOut, Mail, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { supabase } from './supabase'
 
 export const ROLE_LABEL = { admin: 'Admin', editor: 'Editor', viewer: 'Viewer' }
 
@@ -7,6 +8,21 @@ const ROLE_DESC = {
   admin: 'จัดการสมาชิก แก้ไขข้อมูล และตั้งค่าโปรเจกต์ได้',
   editor: 'เพิ่ม แก้ไข ลบ Entity, Column, Relationship และเอกสารได้',
   viewer: 'ดูและส่งออกข้อมูลได้อย่างเดียว',
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const area = document.createElement('textarea')
+  area.value = text
+  area.style.position = 'fixed'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  area.select()
+  document.execCommand('copy')
+  document.body.removeChild(area)
 }
 
 export default function Members({
@@ -17,14 +33,68 @@ export default function Members({
   onInvite,
   onChangeRole,
   onRemove,
+  onRefresh,
+  onLog,
 }) {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('editor')
   const [busy, setBusy] = useState(false)
 
+  const [link, setLink] = useState(null)
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [requests, setRequests] = useState([])
+  const [roleFor, setRoleFor] = useState({})
+  const [setupMissing, setSetupMissing] = useState(false)
+
   const isAdmin = myRole === 'admin'
   const isOwnerRow = (m) => Boolean(m.user_id) && m.user_id === project.userId
   const isMe = (m) => (m.email ?? '').toLowerCase() === myEmail
+  const linkUrl = link ? `${window.location.origin}/?join=${link.code}` : ''
+
+  const loadInviteData = useCallback(async () => {
+    if (!isAdmin) return
+    const [linkRes, reqRes] = await Promise.all([
+      supabase
+        .from('project_invite_links')
+        .select('*')
+        .eq('project_id', project.id)
+        .eq('active', true)
+        .order('created_at', { ascending: false })
+        .limit(1),
+      supabase
+        .from('project_join_requests')
+        .select('*')
+        .eq('project_id', project.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true }),
+    ])
+    if (linkRes.error || reqRes.error) {
+      setSetupMissing(true)
+      return
+    }
+    setSetupMissing(false)
+    setLink(linkRes.data?.[0] ?? null)
+    setRequests(reqRes.data ?? [])
+  }, [isAdmin, project.id])
+
+  useEffect(() => {
+    loadInviteData()
+  }, [loadInviteData])
+
+  // คำขอใหม่เด้งเข้ามาทันที
+  useEffect(() => {
+    if (!isAdmin) return
+    const channel = supabase
+      .channel(`join-requests-${project.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_join_requests' }, () =>
+        loadInviteData(),
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [isAdmin, project.id, loadInviteData])
 
   const submit = async (event) => {
     event.preventDefault()
@@ -33,6 +103,70 @@ export default function Members({
     const ok = await onInvite(email, role)
     setBusy(false)
     if (ok) setEmail('')
+  }
+
+  const createLink = async () => {
+    setLinkBusy(true)
+    if (link) {
+      await supabase.from('project_invite_links').update({ active: false }).eq('id', link.id)
+    }
+    const { data, error } = await supabase
+      .from('project_invite_links')
+      .insert({ project_id: project.id })
+      .select()
+      .single()
+    setLinkBusy(false)
+    if (error) {
+      alert('สร้างลิงก์ไม่สำเร็จ: ' + error.message)
+      return
+    }
+    setLink(data)
+    setCopied(false)
+  }
+
+  const closeLink = async () => {
+    if (!link) return
+    if (!window.confirm('ปิดลิงก์นี้ใช่หรือไม่? คนที่มีลิงก์จะส่งคำขอไม่ได้อีก')) return
+    const { error } = await supabase.from('project_invite_links').update({ active: false }).eq('id', link.id)
+    if (error) {
+      alert('ปิดลิงก์ไม่สำเร็จ: ' + error.message)
+      return
+    }
+    setLink(null)
+  }
+
+  const handleCopy = async () => {
+    try {
+      await copyText(linkUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch {
+      alert('คัดลอกไม่สำเร็จ กรุณาเลือกข้อความแล้วคัดลอกเอง')
+    }
+  }
+
+  const approve = async (req) => {
+    const chosen = roleFor[req.id] ?? 'viewer'
+    const { error } = await supabase.rpc('approve_join_request', { p_request: req.id, p_role: chosen })
+    if (error) {
+      alert('อนุมัติไม่สำเร็จ: ' + error.message)
+      return
+    }
+    onLog?.('create', 'member', req.email, `อนุมัติ ${req.email} เป็น ${ROLE_LABEL[chosen]}`)
+    await loadInviteData()
+    await onRefresh?.()
+  }
+
+  const reject = async (req) => {
+    const { error } = await supabase
+      .from('project_join_requests')
+      .update({ status: 'rejected' })
+      .eq('id', req.id)
+    if (error) {
+      alert('ปฏิเสธไม่สำเร็จ: ' + error.message)
+      return
+    }
+    await loadInviteData()
   }
 
   return (
@@ -46,14 +180,84 @@ export default function Members({
         </div>
 
         {isAdmin && (
-          <form className="members-invite" onSubmit={submit}>
+          <div className="invite-link-box">
+            <h3><Link2 size={14} /> ลิงก์เชิญ</h3>
+            <p>
+              ส่งลิงก์ให้ใครก็ได้ ผู้ที่เปิดลิงก์ต้องเข้าสู่ระบบด้วย Google แล้วส่งคำขอ
+              คุณอนุมัติก่อนจึงจะเข้าถึงโปรเจกต์ได้
+            </p>
+
+            {setupMissing ? (
+              <p className="invite-link-warn">
+                ยังใช้ลิงก์เชิญไม่ได้ ให้รัน SQL ชุดลิงก์เชิญใน Supabase ก่อน
+              </p>
+            ) : link ? (
+              <div className="invite-link-row">
+                <input
+                  className="invite-link-url"
+                  readOnly
+                  value={linkUrl}
+                  onFocus={(event) => event.target.select()}
+                />
+                <button type="button" className="primary-button qx-small" onClick={handleCopy}>
+                  {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
+                </button>
+                <button type="button" className="secondary-button qx-small" onClick={createLink} disabled={linkBusy}>
+                  สร้างใหม่
+                </button>
+                <button type="button" className="secondary-button qx-small" onClick={closeLink}>
+                  ปิดลิงก์
+                </button>
+              </div>
+            ) : (
+              <div className="invite-link-row">
+                <button type="button" className="primary-button qx-small" onClick={createLink} disabled={linkBusy}>
+                  <Link2 size={14} /> {linkBusy ? 'กำลังสร้าง...' : 'สร้างลิงก์เชิญ'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {isAdmin && requests.length > 0 && (
+          <div className="join-requests">
+            <h3>คำขอเข้าร่วม ({requests.length})</h3>
+            {requests.map((req) => (
+              <div className="join-request-row" key={req.id}>
+                <div className="join-request-copy">
+                  <strong>{req.email}</strong>
+                  <small>{new Date(req.created_at).toLocaleString('th-TH')}</small>
+                </div>
+                <select
+                  className="filter-select member-role-select"
+                  aria-label={`บทบาทของ ${req.email}`}
+                  value={roleFor[req.id] ?? 'viewer'}
+                  onChange={(event) => setRoleFor((cur) => ({ ...cur, [req.id]: event.target.value }))}
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button type="button" className="primary-button qx-small" onClick={() => approve(req)}>
+                  <Check size={14} /> อนุมัติ
+                </button>
+                <button type="button" className="secondary-button qx-small" onClick={() => reject(req)}>
+                  <X size={14} /> ปฏิเสธ
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isAdmin && (
+          <form className="members-invite" onSubmit={submit} style={{ marginTop: 16 }}>
             <div className="search-box members-email">
               <Mail size={16} />
               <input
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="อีเมล Google ของผู้ที่ต้องการเชิญ"
+                placeholder="หรือเชิญด้วยอีเมล Google โดยตรง"
                 required
               />
             </div>
@@ -74,7 +278,7 @@ export default function Members({
         )}
         {isAdmin && (
           <p className="members-hint">
-            ระบบยังไม่ส่งอีเมลเชิญ — ผู้ถูกเชิญต้องล็อกอินด้วยอีเมล Google นี้ จึงจะเห็นโปรเจกต์
+            การเชิญด้วยอีเมลไม่ส่งอีเมลแจ้ง — ผู้ถูกเชิญต้องล็อกอินด้วยอีเมล Google นี้ จึงจะเห็นโปรเจกต์
           </p>
         )}
 

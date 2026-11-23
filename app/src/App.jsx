@@ -38,6 +38,7 @@ import './App.css'
 import './Features.css'
 import Documentation from './Documentation'
 import Members, { ROLE_LABEL } from './Members'
+import JoinInvite from './JoinInvite'
 import { mergeProject } from './sync'
 import { parseSqlSchema, applySqlImport } from './sqlImport'
 import {
@@ -205,6 +206,20 @@ const makeImportEntity = (name, index) => ({
   fields: [],
 })
 
+// จำรหัสลิงก์เชิญไว้ก่อน เพราะหลังล็อกอิน Google หน้าเว็บจะรีโหลดและ ?join= หายไป
+const readJoinCode = () => {
+  try {
+    const code = new URLSearchParams(window.location.search).get('join')
+    if (code) {
+      localStorage.setItem('ep_join', code)
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    return localStorage.getItem('ep_join')
+  } catch {
+    return null
+  }
+}
+
 function App() {
   //const [activePage, setActivePage] = useState('Projects')
   const readSaved = (key, fallback) => {
@@ -222,6 +237,12 @@ function App() {
   )
   const [session, setSession] = useState(undefined)
   const [search, setSearch] = useState('')
+
+  const [joinCode, setJoinCode] = useState(readJoinCode)
+  const closeJoin = () => {
+    try { localStorage.removeItem('ep_join') } catch { /* ignore */ }
+    setJoinCode(null)
+  }
 
   // Relationship Management
   const [showRelationshipModal, setShowRelationshipModal] = useState(false)
@@ -1344,6 +1365,12 @@ function App() {
         }
         syncProjectListRef.current?.()
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_join_requests' }, (payload) => {
+        const r = payload.new ?? {}
+        if (r.status !== 'pending' || r.user_id === myIdRef.current) return
+        const project = projectsRef.current.find((p) => p.id === r.project_id)
+        notify(`${r.email} ขอเข้าร่วมโปรเจกต์ "${project?.name ?? ''}"`, 'warn')
+      })
       .subscribe((status) => setRealtimeStatus(status))
 
     return () => {
@@ -1765,6 +1792,9 @@ function App() {
               <br />
               เพื่อเข้าถึงเอกสารฐานข้อมูลของทีม
             </p>
+            {joinCode && (
+              <p className="login-invite-note">คุณได้รับคำเชิญเข้าร่วมโปรเจกต์ กรุณาเข้าสู่ระบบก่อน</p>
+            )}
 
             <button className="login-google-button" onClick={handleGoogleLogin}>
               <span className="google-g">G</span>
@@ -2884,6 +2914,8 @@ function App() {
               onInvite={inviteMember}
               onChangeRole={changeMemberRole}
               onRemove={removeMember}
+              onRefresh={loadMembers}
+              onLog={logChange}
             />
           )}
         </section>
@@ -2894,6 +2926,7 @@ function App() {
         </footer>
       </main>
 
+      {joinCode && <JoinInvite code={joinCode} onClose={closeJoin} />}
       <div className="toast-stack" aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.kind}`}>{t.text}</div>
