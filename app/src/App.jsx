@@ -206,7 +206,20 @@ const makeImportEntity = (name, index) => ({
 })
 
 function App() {
-  const [activePage, setActivePage] = useState('Projects')
+  //const [activePage, setActivePage] = useState('Projects')
+  const readSaved = (key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key)
+      return raw === null ? fallback : JSON.parse(raw)
+    } catch {
+      return fallback
+    }
+  }
+
+  const [selectedProjectId, setSelectedProjectId] = useState(() => readSaved('ep_project', null))
+  const [activePage, setActivePage] = useState(() =>
+    readSaved('ep_project', null) !== null ? readSaved('ep_page', 'Overview') : 'Projects',
+  )
   const [session, setSession] = useState(undefined)
   const [search, setSearch] = useState('')
 
@@ -257,7 +270,7 @@ function App() {
   const dirtyRef = useRef(new Set())
   const loadedUserRef = useRef(null)
   const notesFocusRef = useRef('')
-  const [selectedProjectId, setSelectedProjectId] = useState(null)
+  //const [selectedProjectId, setSelectedProjectId] = useState(null)
   const [selectedEntity, setSelectedEntity] = useState('')
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [projectName, setProjectName] = useState('')
@@ -1185,6 +1198,18 @@ function App() {
   }
   syncProjectListRef.current = syncProjectList
 
+  useEffect(() => {
+    try {
+      if (selectedProjectId === null) {
+        localStorage.removeItem('ep_project')
+        localStorage.removeItem('ep_page')
+      } else {
+        localStorage.setItem('ep_project', JSON.stringify(selectedProjectId))
+        localStorage.setItem('ep_page', JSON.stringify(activePage))
+      }
+    } catch { /* ignore */ }
+  }, [selectedProjectId, activePage])
+
   // 1) จัดการ session
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -1202,6 +1227,7 @@ function App() {
 
   // 2) โหลดโปรเจกต์ของผู้ใช้เมื่อ login
   useEffect(() => {
+    if (session === undefined) return
     const userId = session?.user?.id
 
     if (!userId) {
@@ -1261,6 +1287,13 @@ function App() {
       })
 
       setProjects(data.map(fromRow))
+      setSelectedProjectId((current) => {
+        if (current !== null && !data.some((row) => row.id === current)) {
+          setActivePage('Projects')
+          return null
+        }
+        return current
+      })
       setLoadingProjects(false)
       loadMembers()
     }
