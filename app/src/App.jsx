@@ -239,6 +239,9 @@ function App() {
   const [search, setSearch] = useState('')
 
   const [joinCode, setJoinCode] = useState(readJoinCode)
+  const [pendingRequests, setPendingRequests] = useState([])
+  const seenRequestsRef = useRef(new Set())
+  const checkJoinRequestsRef = useRef(null)
   const closeJoin = () => {
     try { localStorage.removeItem('ep_join') } catch { /* ignore */ }
     setJoinCode(null)
@@ -373,6 +376,9 @@ function App() {
   }
 
   const unreadCount = notifications.filter((n) => !n.read).length
+  const pendingHere = selectedProject
+    ? pendingRequests.filter((r) => r.project_id === selectedProject.id).length
+    : 0
 
   const closeColumnModal = () => {
     setShowColumnModal(false)
@@ -1220,6 +1226,45 @@ function App() {
     await loadMembers()
   }
   syncProjectListRef.current = syncProjectList
+  // ตรวจคำขอเข้าร่วมที่รออนุมัติ (เฉพาะโปรเจกต์ที่เราเป็น Admin ตาม RLS)
+  const checkJoinRequests = async () => {
+    const myId = myIdRef.current
+    if (!myId) return
+    const { data, error } = await supabase
+      .from('project_join_requests')
+      .select('id, user_id, email, project_id, projects(name)')
+      .eq('status', 'pending')
+    if (error) return
+
+    const others = data.filter((r) => r.user_id !== myId)
+    setPendingRequests(others)
+
+    others.forEach((r) => {
+      if (seenRequestsRef.current.has(r.id)) return
+      seenRequestsRef.current.add(r.id)
+      notify(`${r.email} ขอเข้าร่วมโปรเจกต์ "${r.projects?.name ?? ''}"`, 'warn')
+    })
+  }
+  checkJoinRequestsRef.current = checkJoinRequests
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      setPendingRequests([])
+      return
+    }
+    seenRequestsRef.current = new Set()
+    const run = () => checkJoinRequestsRef.current?.()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') run()
+    }
+    run()
+    const timer = setInterval(run, 15000)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [session?.user?.id])
 
   useEffect(() => {
     try {
@@ -1371,11 +1416,8 @@ function App() {
         }
         syncProjectListRef.current?.()
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_join_requests' }, (payload) => {
-        const r = payload.new ?? {}
-        if (r.status !== 'pending' || r.user_id === myIdRef.current) return
-        const project = projectsRef.current.find((p) => p.id === r.project_id)
-        notify(`${r.email} ขอเข้าร่วมโปรเจกต์ "${project?.name ?? ''}"`, 'warn')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_join_requests' }, () => {
+        checkJoinRequestsRef.current?.()
       })
       .subscribe((status) => setRealtimeStatus(status))
 
@@ -1948,6 +1990,9 @@ function App() {
                   {label === 'Entities' && <span className="nav-count">{entities.length}</span>}
                   {label === 'Members' && (members[selectedProject.id]?.length ?? 0) > 0 && (
                     <span className="nav-count">{members[selectedProject.id].length}</span>
+                  )}
+                  {label === 'Members' && pendingHere > 0 && (
+                    <span className="nav-pending">{pendingHere}</span>
                   )}
                 </button>
               ))}
@@ -2920,7 +2965,10 @@ function App() {
               onInvite={inviteMember}
               onChangeRole={changeMemberRole}
               onRemove={removeMember}
-              onRefresh={loadMembers}
+              onRefresh={async () => {
+                await loadMembers()
+                checkJoinRequestsRef.current?.()
+              }}
               onLog={logChange}
             />
           )}

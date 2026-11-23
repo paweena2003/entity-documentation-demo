@@ -709,3 +709,14 @@ label.secondary-button {
   color: #3b5689;
   font-size: 12px;
 }
+.nav-pending {
+  margin-left: 6px;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: #d65353;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}

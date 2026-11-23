@@ -133,6 +133,7 @@ export default function Members({
       return
     }
     setLink(data)
+    onLog?.('create', 'invite', 'ลิงก์เชิญ', 'สร้างลิงก์เชิญเข้าร่วมโปรเจกต์')
     setCopied(false)
   }
 
@@ -145,6 +146,7 @@ export default function Members({
       return
     }
     setLink(null)
+    onLog?.('delete', 'invite', 'ลิงก์เชิญ', 'ปิดลิงก์เชิญ')
   }
 
   const handleCopy = async () => {
@@ -178,7 +180,9 @@ export default function Members({
       alert('ปฏิเสธไม่สำเร็จ: ' + error.message)
       return
     }
+    onLog?.('delete', 'member', req.email, `ปฏิเสธคำขอเข้าร่วมของ ${req.email}`)
     await loadInviteData()
+    await onRefresh?.()
   }
 
   return (
