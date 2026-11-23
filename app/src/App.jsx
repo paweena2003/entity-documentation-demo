@@ -1241,7 +1241,11 @@ function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === 'SIGNED_OUT') {
+        try { localStorage.removeItem('ep_join') } catch { /* ignore */ }
+        setJoinCode(null)
+      }
       setSession(nextSession)
     })
 

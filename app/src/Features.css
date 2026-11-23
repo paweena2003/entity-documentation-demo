@@ -709,7 +709,3 @@ label.secondary-button {
   color: #3b5689;
   font-size: 12px;
 }
-
-.invite-card-actions {
-  justify-content: flex-start;
-}
