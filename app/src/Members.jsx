@@ -180,85 +180,53 @@ export default function Members({
         </div>
 
         {isAdmin && (
-          <div className="invite-link-box">
-            {isAdmin && (
-              <div className="invite-link-box">
-                <div className="invite-link-head">
-                  <div className="invite-link-copy">
-                    <h3><Link2 size={14} /> ลิงก์เชิญ</h3>
-                    <p>
-                      ส่งลิงก์ให้ใครก็ได้ ผู้ที่เปิดลิงก์ต้องเข้าสู่ระบบด้วย Google แล้วส่งคำขอ
-                      คุณอนุมัติก่อนจึงจะเข้าถึงโปรเจกต์ได้
-                    </p>
-                  </div>
-
-                  {!setupMissing && !link && (
-                    <button type="button" className="primary-button qx-small" onClick={createLink} disabled={linkBusy}>
-                      <Link2 size={14} /> {linkBusy ? 'กำลังสร้าง...' : 'สร้างลิงก์เชิญ'}
-                    </button>
-                  )}
-                </div>
-
-                {setupMissing && (
-                  <p className="invite-link-warn">
-                    ยังใช้ลิงก์เชิญไม่ได้ ให้รัน SQL ชุดลิงก์เชิญใน Supabase ก่อน
-                  </p>
-                )}
-
-                {!setupMissing && link && (
-                  <div className="invite-link-row">
-                    <input
-                      className="invite-link-url"
-                      readOnly
-                      value={linkUrl}
-                      onFocus={(event) => event.target.select()}
-                    />
-                    <button type="button" className="primary-button qx-small" onClick={handleCopy}>
-                      {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
-                    </button>
-                    <button type="button" className="secondary-button qx-small" onClick={createLink} disabled={linkBusy}>
-                      สร้างใหม่
-                    </button>
-                    <button type="button" className="secondary-button qx-small" onClick={closeLink}>
-                      ปิดลิงก์
-                    </button>
-                  </div>
-                )}
+          <div className="invite-card">
+            <div className="invite-card-head">
+              <div className="invite-card-icon">
+                <Link2 size={18} />
               </div>
-            )}
-            <p>
-              ส่งลิงก์ให้ใครก็ได้ ผู้ที่เปิดลิงก์ต้องเข้าสู่ระบบด้วย Google แล้วส่งคำขอ
-              คุณอนุมัติก่อนจึงจะเข้าถึงโปรเจกต์ได้
-            </p>
-
-            {setupMissing ? (
-              <p className="invite-link-warn">
-                ยังใช้ลิงก์เชิญไม่ได้ ให้รัน SQL ชุดลิงก์เชิญใน Supabase ก่อน
-              </p>
-            ) : link ? (
-              <div className="invite-link-row">
-                <input
-                  className="invite-link-url"
-                  readOnly
-                  value={linkUrl}
-                  onFocus={(event) => event.target.select()}
-                />
-                <button type="button" className="primary-button qx-small" onClick={handleCopy}>
-                  {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
-                </button>
-                <button type="button" className="secondary-button qx-small" onClick={createLink} disabled={linkBusy}>
-                  สร้างใหม่
-                </button>
-                <button type="button" className="secondary-button qx-small" onClick={closeLink}>
-                  ปิดลิงก์
-                </button>
+              <div className="invite-card-copy">
+                <strong>ลิงก์เชิญ</strong>
+                <p>
+                  ส่งลิงก์ให้ใครก็ได้ ผู้ที่เปิดลิงก์ต้องเข้าสู่ระบบด้วย Google แล้วส่งคำขอ
+                  คุณอนุมัติก่อนจึงจะเข้าถึงโปรเจกต์ได้
+                </p>
               </div>
-            ) : (
-              <div className="invite-link-row">
+
+              {!setupMissing && !link && (
                 <button type="button" className="primary-button qx-small" onClick={createLink} disabled={linkBusy}>
                   <Link2 size={14} /> {linkBusy ? 'กำลังสร้าง...' : 'สร้างลิงก์เชิญ'}
                 </button>
-              </div>
+              )}
+            </div>
+
+            {setupMissing && (
+              <p className="invite-card-warn">ยังใช้ลิงก์เชิญไม่ได้ ให้รัน SQL ชุดลิงก์เชิญใน Supabase ก่อน</p>
+            )}
+
+            {!setupMissing && link && (
+              <>
+                <div className="invite-card-row">
+                  <input
+                    className="invite-card-url"
+                    readOnly
+                    value={linkUrl}
+                    onFocus={(event) => event.target.select()}
+                  />
+                  <button type="button" className="primary-button qx-small" onClick={handleCopy}>
+                    {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
+                  </button>
+                </div>
+                <div className="invite-card-actions">
+                  <button type="button" className="invite-text-btn" onClick={createLink} disabled={linkBusy}>
+                    สร้างลิงก์ใหม่
+                  </button>
+                  <span>·</span>
+                  <button type="button" className="invite-text-btn danger" onClick={closeLink}>
+                    ปิดลิงก์
+                  </button>
+                </div>
+              </>
             )}
           </div>
         )}

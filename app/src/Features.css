@@ -491,26 +491,130 @@ label.secondary-button { cursor: pointer; }
   color: #3b5689;
   font-size: 12px;
 }
-.invite-link-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+/* ---- การ์ดลิงก์เชิญ ---- */
+.invite-card {
+  margin: 0 20px 14px;
+  padding: 16px;
+  border: 1px solid #e4e5ff;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #f7f6ff, #fafbff);
 }
 
-.invite-link-copy {
+.invite-card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.invite-card-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #e9eaff;
+  color: #595ce7;
+}
+
+.invite-card-copy {
   flex: 1;
   min-width: 0;
 }
 
-.invite-link-head .primary-button {
+.invite-card-copy strong {
+  display: block;
+  color: #293650;
+  font-size: 13px;
+}
+
+.invite-card-copy p {
+  margin: 4px 0 0;
+  color: #8993a7;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.invite-card-head > .primary-button {
   flex: 0 0 auto;
   white-space: nowrap;
 }
 
+.invite-card-warn {
+  margin: 12px 0 0;
+  color: #b7791f;
+  font-size: 11px;
+}
+
+.invite-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.invite-card-url {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #e1e5ef;
+  border-radius: 9px;
+  background: #fff;
+  color: #34415c;
+  font: inherit;
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.invite-card-url:focus {
+  outline: 3px solid rgba(104, 105, 235, 0.15);
+  border-color: #9b9af1;
+}
+
+.invite-card-row .primary-button {
+  flex: 0 0 auto;
+  height: 38px;
+  white-space: nowrap;
+}
+
+.invite-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: #c2c8d4;
+  font-size: 11px;
+}
+
+.invite-text-btn {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: #6968dc;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.invite-text-btn:hover {
+  text-decoration: underline;
+}
+
+.invite-text-btn.danger {
+  color: #d65353;
+}
+
+.invite-text-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 @media (max-width: 600px) {
-  .invite-link-head {
+  .invite-card-head {
+    flex-wrap: wrap;
+  }
+  .invite-card-row {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
   }
 }
