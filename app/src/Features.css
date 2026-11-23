@@ -491,3 +491,26 @@ label.secondary-button { cursor: pointer; }
   color: #3b5689;
   font-size: 12px;
 }
+.invite-link-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.invite-link-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.invite-link-head .primary-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .invite-link-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

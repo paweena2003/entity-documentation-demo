@@ -181,7 +181,51 @@ export default function Members({
 
         {isAdmin && (
           <div className="invite-link-box">
-            <h3><Link2 size={14} /> ลิงก์เชิญ</h3>
+            {isAdmin && (
+              <div className="invite-link-box">
+                <div className="invite-link-head">
+                  <div className="invite-link-copy">
+                    <h3><Link2 size={14} /> ลิงก์เชิญ</h3>
+                    <p>
+                      ส่งลิงก์ให้ใครก็ได้ ผู้ที่เปิดลิงก์ต้องเข้าสู่ระบบด้วย Google แล้วส่งคำขอ
+                      คุณอนุมัติก่อนจึงจะเข้าถึงโปรเจกต์ได้
+                    </p>
+                  </div>
+
+                  {!setupMissing && !link && (
+                    <button type="button" className="primary-button qx-small" onClick={createLink} disabled={linkBusy}>
+                      <Link2 size={14} /> {linkBusy ? 'กำลังสร้าง...' : 'สร้างลิงก์เชิญ'}
+                    </button>
+                  )}
+                </div>
+
+                {setupMissing && (
+                  <p className="invite-link-warn">
+                    ยังใช้ลิงก์เชิญไม่ได้ ให้รัน SQL ชุดลิงก์เชิญใน Supabase ก่อน
+                  </p>
+                )}
+
+                {!setupMissing && link && (
+                  <div className="invite-link-row">
+                    <input
+                      className="invite-link-url"
+                      readOnly
+                      value={linkUrl}
+                      onFocus={(event) => event.target.select()}
+                    />
+                    <button type="button" className="primary-button qx-small" onClick={handleCopy}>
+                      {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
+                    </button>
+                    <button type="button" className="secondary-button qx-small" onClick={createLink} disabled={linkBusy}>
+                      สร้างใหม่
+                    </button>
+                    <button type="button" className="secondary-button qx-small" onClick={closeLink}>
+                      ปิดลิงก์
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <p>
               ส่งลิงก์ให้ใครก็ได้ ผู้ที่เปิดลิงก์ต้องเข้าสู่ระบบด้วย Google แล้วส่งคำขอ
               คุณอนุมัติก่อนจึงจะเข้าถึงโปรเจกต์ได้
