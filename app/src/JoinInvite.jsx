@@ -1,22 +1,57 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 
-export default function JoinInvite({ code, onClose }) {
+const forgetCode = () => {
+  try {
+    localStorage.removeItem('ep_join')
+  } catch {
+    /* ignore */
+  }
+}
+
+export default function JoinInvite({ code, onClose, onApproved }) {
   const [info, setInfo] = useState(null) // { status, name }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [approved, setApproved] = useState(false)
+  const prevStatus = useRef(null)
+
+  const check = async () => {
+    const { data, error: err } = await supabase.rpc('preview_invite', { p_code: code })
+    if (err) {
+      setError('ตรวจลิงก์ไม่สำเร็จ: ' + err.message)
+      return
+    }
+    setError('')
+    setInfo(data)
+  }
 
   useEffect(() => {
-    let cancelled = false
-    supabase.rpc('preview_invite', { p_code: code }).then(({ data, error: err }) => {
-      if (cancelled) return
-      if (err) setError('ตรวจลิงก์ไม่สำเร็จ: ' + err.message)
-      else setInfo(data)
-    })
-    return () => {
-      cancelled = true
-    }
+    check()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code])
+
+  const status = info?.status
+
+  // รอ Admin อนุมัติ: ตรวจซ้ำเป็นระยะ
+  useEffect(() => {
+    if (status !== 'pending') return
+    const timer = setInterval(check, 4000)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, code])
+
+  // เปลี่ยนสถานะ: เคลียร์รหัสที่ค้าง / แจ้งว่าอนุมัติแล้ว
+  useEffect(() => {
+    if (!status) return
+    if (status === 'member' || status === 'invalid') forgetCode()
+    if (status === 'member' && prevStatus.current === 'pending') {
+      setApproved(true)
+      onApproved?.()
+    }
+    prevStatus.current = status
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status])
 
   const send = async () => {
     setBusy(true)
@@ -30,7 +65,10 @@ export default function JoinInvite({ code, onClose }) {
     setInfo((current) => ({ ...current, status: data?.status }))
   }
 
-  const status = info?.status
+  const close = () => {
+    forgetCode()
+    onClose()
+  }
 
   return (
     <div className="project-modal-overlay">
@@ -40,7 +78,7 @@ export default function JoinInvite({ code, onClose }) {
             <h2>คำเชิญเข้าร่วมโปรเจกต์</h2>
             {status && status !== 'invalid' && info?.name && <p>{info.name}</p>}
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="ปิด">
+          <button type="button" className="icon-button" onClick={close} aria-label="ปิด">
             ×
           </button>
         </div>
@@ -51,16 +89,20 @@ export default function JoinInvite({ code, onClose }) {
         {status === 'invalid' && (
           <p>ลิงก์นี้ไม่ถูกต้อง หรือ Admin ปิดลิงก์แล้ว กรุณาขอลิงก์ใหม่จากผู้เชิญ</p>
         )}
-        {status === 'member' && <p>คุณเป็นสมาชิกของโปรเจกต์นี้อยู่แล้ว</p>}
-        {status === 'pending' && (
-          <p>ส่งคำขอแล้ว รอ Admin อนุมัติ เมื่ออนุมัติแล้วโปรเจกต์จะขึ้นในรายการของคุณ (รีเฟรชหน้าได้)</p>
+        {status === 'member' && (
+          <p>
+            {approved
+              ? 'Admin อนุมัติแล้ว โปรเจกต์นี้อยู่ในรายการของคุณเรียบร้อย'
+              : 'คุณเป็นสมาชิกของโปรเจกต์นี้อยู่แล้ว'}
+          </p>
         )}
+        {status === 'pending' && <p>ส่งคำขอแล้ว รอ Admin อนุมัติ เมื่ออนุมัติหน้านี้จะอัปเดตให้เอง</p>}
         {status === 'none' && <p>ต้องการส่งคำขอเข้าร่วมโปรเจกต์นี้หรือไม่? Admin จะเป็นผู้อนุมัติ</p>}
 
         <div className="project-modal-actions">
           {status === 'none' ? (
             <>
-              <button type="button" className="secondary-button" onClick={onClose}>
+              <button type="button" className="secondary-button" onClick={close}>
                 ยกเลิก
               </button>
               <button type="button" className="primary-button" onClick={send} disabled={busy}>
@@ -68,8 +110,8 @@ export default function JoinInvite({ code, onClose }) {
               </button>
             </>
           ) : (
-            <button type="button" className="primary-button" onClick={onClose}>
-              ปิด
+            <button type="button" className="primary-button" onClick={close}>
+              {approved ? 'ไปที่โปรเจกต์' : 'ปิด'}
             </button>
           )}
         </div>

@@ -542,6 +542,8 @@ function App() {
       alert('ออกจากระบบไม่สำเร็จ: ' + error.message)
       return
     }
+    try { localStorage.removeItem('ep_join') } catch { /* ignore */ }
+    setJoinCode(null)
     setSelectedProjectId(null)
     setActivePage('Projects')
   }
@@ -2926,12 +2928,13 @@ function App() {
         </footer>
       </main>
 
-      {joinCode && <JoinInvite code={joinCode} onClose={closeJoin} />}
-      <div className="toast-stack" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.kind}`}>{t.text}</div>
-        ))}
-      </div>
+      {joinCode && (
+        <JoinInvite
+          code={joinCode}
+          onClose={closeJoin}
+          onApproved={() => syncProjectListRef.current?.()}
+        />
+      )}
 
       {showEntityModal && (
         <div className="project-modal-overlay">

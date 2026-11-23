@@ -80,6 +80,18 @@ export default function Members({
 
   useEffect(() => {
     loadInviteData()
+    // เผื่อ session ยังไม่พร้อมตอนเปิดหน้านี้ครั้งแรก
+    const retry = setTimeout(loadInviteData, 1500)
+    const refresh = () => {
+      if (document.visibilityState === 'visible') loadInviteData()
+    }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      clearTimeout(retry)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
   }, [loadInviteData])
 
   // คำขอใหม่เด้งเข้ามาทันที
