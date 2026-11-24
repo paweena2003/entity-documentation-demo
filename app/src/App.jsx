@@ -2546,35 +2546,6 @@ function App() {
                     </div>
                   )}
                 </section>
-
-                <section className="panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h2><Clock3 size={19} /> ความเคลื่อนไหวล่าสุด</h2>
-                      <p>5 รายการล่าสุด</p>
-                    </div>
-                    <button type="button" className="text-button" onClick={() => setActivePage('Changelog')}>
-                      ดูทั้งหมด <ArrowRight size={13} />
-                    </button>
-                  </div>
-                  {visibleChangelog.length === 0 ? (
-                    <p className="empty-state">ยังไม่มีประวัติการแก้ไข</p>
-                  ) : (
-                    <div className="timeline">
-                      {visibleChangelog.slice(0, 5).map((log) => (
-                        <div className="timeline-item" key={log.id}>
-                          <span
-                            className={`timeline-dot ${log.action === 'delete' ? 'red-dot' : log.action === 'create' ? 'green-dot' : 'purple-dot'}`}
-                          />
-                          <div>
-                            <strong>{log.summary}</strong>
-                            <small>{log.by || 'Unknown'} · {new Date(log.at).toLocaleString('th-TH')}</small>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
               </div>
             </div>
           )}
