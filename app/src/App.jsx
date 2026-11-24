@@ -219,6 +219,21 @@ const readJoinCode = () => {
     return null
   }
 }
+// จำคำขอที่แจ้งเตือนไปแล้ว ไม่ให้เด้งซ้ำหลังรีเฟรช
+const loadSeenRequests = () => {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('ep_seen_requests') ?? '[]'))
+  } catch {
+    return new Set()
+  }
+}
+const saveSeenRequests = (set) => {
+  try {
+    localStorage.setItem('ep_seen_requests', JSON.stringify([...set].slice(-200)))
+  } catch {
+    /* ignore */
+  }
+}
 
 function App() {
   //const [activePage, setActivePage] = useState('Projects')
@@ -1245,6 +1260,7 @@ function App() {
       seenRequestsRef.current.add(r.id)
       notify(`${r.email} ขอเข้าร่วมโปรเจกต์ "${r.projects?.name ?? ''}"`, 'warn')
     })
+    saveSeenRequests(seenRequestsRef.current)
   }
   checkJoinRequestsRef.current = checkJoinRequests
 
@@ -1253,7 +1269,8 @@ function App() {
       setPendingRequests([])
       return
     }
-    seenRequestsRef.current = new Set()
+    //seenRequestsRef.current = new Set()
+    seenRequestsRef.current = loadSeenRequests()
     const run = () => checkJoinRequestsRef.current?.()
     const onVisible = () => {
       if (document.visibilityState === 'visible') run()
