@@ -441,7 +441,7 @@ function App() {
 
   const clearNotifications = () => {
     setNotifications([])
-    supabase.from('user_notifications').update({ hidden: true }).eq('hidden', false).then(() => { })
+    supabase.from('user_notifications').delete().eq('hidden', false).then(() => { })
   }
 
   const toggleNotif = () => {
