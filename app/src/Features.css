@@ -720,3 +720,44 @@ label.secondary-button {
   font-weight: 800;
   text-align: center;
 }
+/* ---- ซ่อน/แสดงเมนูด้านข้าง ---- */
+.sidebar { transition: transform 0.22s ease; }
+.main-content { transition: margin-left 0.22s ease; }
+
+.sidebar-toggle {
+  position: fixed;
+  top: 22px;
+  left: 250px;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #e1e5ef;
+  border-radius: 50%;
+  background: #fff;
+  color: #778198;
+  box-shadow: 0 2px 6px rgba(30, 41, 80, 0.08);
+  transform: translateX(-50%);
+  transition: left 0.22s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.sidebar-toggle:hover { color: #5b5de6; border-color: #c9c9f5; }
+
+.app-shell.sidebar-collapsed .sidebar { transform: translateX(-100%); }
+.app-shell.sidebar-collapsed .main-content { margin-left: 0; }
+.app-shell.sidebar-collapsed .sidebar-toggle { left: 8px; transform: none; }
+.app-shell.sidebar-collapsed .topbar { padding-left: 44px; }
+.app-shell.sidebar-collapsed .page-content { max-width: 1800px; }
+
+@media (max-width: 1100px) { .sidebar-toggle { left: 215px; } }
+@media (max-width: 650px) {
+  .sidebar-toggle { display: none; }
+  .app-shell.sidebar-collapsed .sidebar { transform: none; }
+}
+
+/* ---- หน้า Entities: ซ่อนรายการ ---- */
+.content-grid.entity-detail-grid.list-hidden { grid-template-columns: minmax(0, 1fr); }
+.detail-header-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.detail-header-actions .secondary-button { min-height: 34px; padding: 6px 12px; font-size: 11px; }
+.detail-header-actions .filter-select { height: 34px; }
