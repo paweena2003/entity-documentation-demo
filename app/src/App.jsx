@@ -340,8 +340,8 @@ function App() {
     try { localStorage.setItem('ep_toast', next ? 'on' : 'off') } catch { /* ignore */ }
   }
 
-  const markAllRead = () =>
-    setNotifications((current) => current.map((n) => ({ ...n, read: true })))
+  //const markAllRead = () =>
+  //setNotifications((current) => current.map((n) => ({ ...n, read: true })))
 
   const refreshProjectRef = useRef(null)
   const syncProjectListRef = useRef(null)
@@ -377,17 +377,75 @@ function App() {
   const [showProjectMenu, setShowProjectMenu] = useState(false)
   const [editingProject, setEditingProject] = useState(null)
 
-  const notify = (text, kind = 'info') => {
-    const id = crypto.randomUUID()
-    const item = { id, at: new Date().toISOString(), text, kind, read: false }
-    setNotifications((current) => [item, ...current].slice(0, 30))
+  const toastedRef = useRef(new Set())
+
+  const rowToItem = (row) => ({
+    id: row.id,
+    at: row.created_at,
+    text: row.text,
+    kind: row.kind,
+    read: row.read,
+  })
+
+  const showToast = (item) => {
+    if (toastedRef.current.has(item.id)) return
+    toastedRef.current.add(item.id)
     if (!toastEnabledRef.current) return
     setToasts((current) => [...current, item])
-    setTimeout(() => setToasts((current) => current.filter((t) => t.id !== id)), 6000)
+    setTimeout(() => setToasts((current) => current.filter((t) => t.id !== item.id)), 6000)
+  }
+
+  const loadNotifications = async () => {
+    const { data, error } = await supabase
+      .from('user_notifications')
+      .select('*')
+      .eq('hidden', false)
+      .order('created_at', { ascending: false })
+      .limit(30)
+    if (error) return
+    setNotifications(data.map(rowToItem))
+  }
+
+  // key เดียวกัน = แจ้งเตือนเรื่องเดียวกัน (ไม่ซ้ำแม้เปิดหลายเครื่อง)
+  const notify = (text, kind = 'info', key) => {
+    const uid = myIdRef.current
+    const k = key ?? `${kind}:${text}:${Math.floor(Date.now() / 60000)}`
+
+    const localOnly = () => {
+      const item = { id: crypto.randomUUID(), at: new Date().toISOString(), text, kind, read: false }
+      setNotifications((current) => [item, ...current].slice(0, 30))
+      showToast(item)
+    }
+    if (!uid) return localOnly()
+
+    supabase
+      .from('user_notifications')
+      .upsert({ user_id: uid, key: k, text, kind }, { onConflict: 'user_id,key', ignoreDuplicates: true })
+      .select()
+      .then(({ data, error }) => {
+        if (error) return localOnly() // ยังไม่ได้รัน SQL หรือเน็ตมีปัญหา: เก็บในเครื่องไปก่อน
+        const row = data?.[0]
+        if (!row) return // มีเครื่องอื่นสร้างไว้แล้ว
+        const item = rowToItem(row)
+        setNotifications((current) =>
+          current.some((n) => n.id === item.id) ? current : [item, ...current].slice(0, 30),
+        )
+        showToast(item)
+      })
+  }
+
+  const markAllRead = () => {
+    setNotifications((current) => current.map((n) => ({ ...n, read: true })))
+    supabase.from('user_notifications').update({ read: true }).eq('read', false).then(() => { })
+  }
+
+  const clearNotifications = () => {
+    setNotifications([])
+    supabase.from('user_notifications').update({ hidden: true }).eq('hidden', false).then(() => { })
   }
 
   const toggleNotif = () => {
-    if (showNotif) setNotifications((current) => current.map((n) => ({ ...n, read: true })))
+    if (showNotif) markAllRead()
     setShowNotif((open) => !open)
   }
 
@@ -1258,7 +1316,7 @@ function App() {
     others.forEach((r) => {
       if (seenRequestsRef.current.has(r.id)) return
       seenRequestsRef.current.add(r.id)
-      notify(`${r.email} ขอเข้าร่วมโปรเจกต์ "${r.projects?.name ?? ''}"`, 'warn')
+      notify(`${r.email} ขอเข้าร่วมโปรเจกต์ "${r.projects?.name ?? ''}"`, 'warn', `join:${r.id}`)
     })
     saveSeenRequests(seenRequestsRef.current)
   }
@@ -1295,6 +1353,44 @@ function App() {
       }
     } catch { /* ignore */ }
   }, [selectedProjectId, activePage])
+
+  useEffect(() => {
+    const uid = session?.user?.id
+    if (!uid) return
+
+    loadNotifications()
+    // เก็บย้อนหลัง 30 วัน
+    supabase
+      .from('user_notifications')
+      .delete()
+      .lt('created_at', new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString())
+      .then(() => { })
+
+    const channel = supabase
+      .channel(`user-notifs-${uid}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_notifications' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const item = rowToItem(payload.new)
+          setNotifications((current) =>
+            current.some((n) => n.id === item.id) ? current : [item, ...current].slice(0, 30),
+          )
+          showToast(item)
+        } else {
+          loadNotifications()
+        }
+      })
+      .subscribe()
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadNotifications()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      supabase.removeChannel(channel)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [session?.user?.id])
 
   // 1) จัดการ session
   useEffect(() => {
@@ -1521,6 +1617,16 @@ function App() {
             versionsRef.current[id] = data[0].version
             baseRef.current[id] = snap
           } else {
+            // อัปเดตได้ 0 แถว: version ไม่ตรง (มีคนแก้ก่อน) หรือถูก RLS ปฏิเสธเงียบ ๆ
+            const { data: cur } = await supabase.from('projects').select('version').eq('id', id).maybeSingle()
+            console.warn('autosave: 0 rows updated', {
+              projectId: id,
+              myVersion: versionsRef.current[id],
+              serverVersion: cur?.version,
+            })
+            if (cur && cur.version === versionsRef.current[id]) {
+              setSaveError('ฐานข้อมูลไม่อนุญาตให้บันทึก (สิทธิ์ RLS ของตาราง projects)')
+            }
             const result = await mergeWithRemote(id, snap)
             if (result === 'merged') merged = true
             else if (result === 'conflict') conflicts.push(project)
@@ -2070,7 +2176,7 @@ function App() {
                         <span>
                           <button type="button" onClick={markAllRead}>อ่านทั้งหมด</button>
                           {' · '}
-                          <button type="button" onClick={() => setNotifications([])}>ล้างทั้งหมด</button>
+                          <button type="button" onClick={clearNotifications}>ล้างทั้งหมด</button>
                         </span>
                       )}
                     </div>
