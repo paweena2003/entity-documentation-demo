@@ -2522,30 +2522,6 @@ function App() {
                     </ul>
                   </div>
                 </section>
-
-                <section className="panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h2><Table2 size={19} /> ชนิดข้อมูลที่ใช้</h2>
-                      <p>Top 6 จากทุก Column</p>
-                    </div>
-                  </div>
-                  {typeCounts.length === 0 ? (
-                    <p className="empty-state">ยังไม่มี Column</p>
-                  ) : (
-                    <div className="type-bars">
-                      {typeCounts.map(([type, count]) => (
-                        <div className="type-bar-row" key={type}>
-                          <span className="type-bar-label">{type}</span>
-                          <div className="type-bar-track">
-                            <div className="type-bar-fill" style={{ width: `${(count / typeMax) * 100}%` }} />
-                          </div>
-                          <span className="type-bar-count">{count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
               </div>
             </div>
           )}
