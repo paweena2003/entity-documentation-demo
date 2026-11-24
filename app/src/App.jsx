@@ -291,6 +291,7 @@ function App() {
   projectsRef.current = projects
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [saveStatus, setSaveStatus] = useState('idle') // idle | saving | saved | error | conflict
+  const [saveError, setSaveError] = useState('')
   const dirtyRef = useRef(new Set())
   const loadedUserRef = useRef(null)
   const notesFocusRef = useRef('')
@@ -1497,6 +1498,8 @@ function App() {
           if (error) {
             failed = true
             dirtyRef.current.add(id)
+            console.error('autosave failed:', error)
+            setSaveError(error.message)
           } else if (data && data.length > 0) {
             versionsRef.current[id] = data[0].version
             baseRef.current[id] = snap
@@ -1533,6 +1536,7 @@ function App() {
         setTimeout(() => setRetryTick((t) => t + 1), 5000) // ลองใหม่ใน 5 วินาที
       } else if (dirtyRef.current.size === 0) {
         setSaveStatus('saved')
+        setSaveError('')
       }
 
       // การเปลี่ยนแปลงจากคนอื่นที่เข้ามาระหว่างบันทึก
@@ -2017,7 +2021,7 @@ function App() {
             )}
           </div>
           <div className="topbar-actions">
-            <span className={`status-pill save-${saveStatus}`}>
+            <span className={`status-pill save-${saveStatus}`} title={saveError}>
               <span className="status-dot" />
               {{
                 idle: realtimeStatus === 'SUBSCRIBED' ? 'Live sync' : 'Cloud sync',
