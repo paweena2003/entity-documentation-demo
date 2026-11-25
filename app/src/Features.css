@@ -761,3 +761,13 @@ label.secondary-button {
 .detail-header-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .detail-header-actions .secondary-button { min-height: 34px; padding: 6px 12px; font-size: 11px; }
 .detail-header-actions .filter-select { height: 34px; }
+
+.export-menu { left: auto; right: 0; min-width: 190px; }
+
+.er-node-header.draggable { cursor: grab; touch-action: none; user-select: none; }
+.er-node.dragging { z-index: 3; opacity: .92; }
+.er-node.dragging .er-node-header { cursor: grabbing; }
+
+.export-menu { left: auto; right: 0; min-width: 190px; }
+.er-node-header.draggable { cursor: grab; touch-action: none; user-select: none; }
+.er-node.dragging { z-index: 3; opacity: .92; }

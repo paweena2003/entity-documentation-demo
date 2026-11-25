@@ -45,17 +45,19 @@ import Members, { ROLE_LABEL } from './Members'
 import JoinInvite from './JoinInvite'
 import { mergeProject } from './sync'
 import { parseSqlSchema, applySqlImport } from './sqlImport'
+import ImportMapper from './ImportMapper'
+import ExportDialog from './ExportDialog'
+import { parseDelimited, tableFromMatrix } from './ioMapping'
+import './Mapping.css'
 import {
-  buildSql,
-  buildDictionaryCsv,
   buildImportTemplate,
-  parseImportCsv,
-  mergeImport,
   diagramToSvg,
   svgToPngBlob,
   downloadFile,
   safeFileName,
 } from './exportImport'
+import ExportMenu from './ExportMenu'
+import { exportPdf, exportWord } from './exportDoc'
 
 const initialEntities = [
   {
@@ -242,6 +244,29 @@ const saveSeenRequests = (set) => {
 // รายการใน Changelog ที่เห็นได้เฉพาะ Admin / เจ้าของ
 const ADMIN_LOG_TARGETS = ['member', 'invite', 'project']
 
+
+
+// แปลง PNG เป็น JPEG (พื้นหลังขาว เพราะ JPEG ไม่มีความโปร่งใส)
+const pngToJpegBlob = (pngBlob) =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(pngBlob)
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0)
+      URL.revokeObjectURL(url)
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('สร้าง JPEG ไม่สำเร็จ'))), 'image/jpeg', 0.92)
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('โหลดภาพไม่สำเร็จ')) }
+    img.src = url
+  })
+
+
 function App() {
   const readSaved = (key, fallback) => {
     try {
@@ -299,8 +324,16 @@ function App() {
   const [columnTypeFilter, setColumnTypeFilter] = useState('all')
   // Data Dictionary sort
   const [dictSort, setDictSort] = useState(null) // null | { key, dir }
+  const [dragging, setDragging] = useState(null) // { name, x, y }
+  const [dictSearch, setDictSearch] = useState('')
+  const [dictEntity, setDictEntity] = useState('all')
+  const [dictType, setDictType] = useState('all')
+  const [dictKey, setDictKey] = useState('all')
+  const [dictDesc, setDictDesc] = useState('all') // all | empty | filled
   // Import preview
   const [importPreview, setImportPreview] = useState(null)
+  // หน้าต่างตั้งค่าก่อนส่งออก: null | { kind: 'sql', dialect } | { kind: 'csv' }
+  const [exportDialog, setExportDialog] = useState(null)
 
   const [projects, setProjects] = useState([])
   const versionsRef = useRef({}) // { [projectId]: version ล่าสุดที่รู้จัก }
@@ -537,11 +570,17 @@ function App() {
       .includes(search.toLowerCase()),
   )
 
-  const filteredFields = allFields.filter((field) =>
-    `${field.name} ${field.type} ${field.description} ${field.entity}`
+  const filteredFields = allFields.filter((field) => {
+    if (dictEntity !== 'all' && field.entity !== dictEntity) return false
+    if (dictType !== 'all' && field.type !== dictType) return false
+    if (dictKey === 'none' ? Boolean(field.key) : dictKey !== 'all' && field.key !== dictKey) return false
+    const hasDesc = (field.description ?? '').trim() !== ''
+    if (dictDesc === 'empty' && hasDesc) return false
+    if (dictDesc === 'filled' && !hasDesc) return false
+    return `${field.name} ${field.type} ${field.description} ${field.entity}`
       .toLowerCase()
-      .includes(search.toLowerCase()),
-  )
+      .includes(dictSearch.toLowerCase())
+  })
 
   // เรียงข้อมูลใน Data Dictionary (คลิกหัวคอลัมน์: ก-ฮ → ฮ-ก → ลำดับเดิม)
   const sortedFields = dictSort
@@ -618,6 +657,16 @@ function App() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6)
   const typeMax = typeCounts[0]?.[1] ?? 1
+  // สถานะเอกสารรวม: นับทั้งหน้า Documentation ของ Entity และคำอธิบายของ Column
+  const docPageCoveragePct = entities.length
+    ? Math.round(((entities.length - noDocPageCount) / entities.length) * 100)
+    : 0
+  const docOverallPct = Math.round((docPageCoveragePct + docPct) / 2)
+  const docStatus =
+    entities.length === 0 ? 'ยังไม่เริ่ม'
+      : docs.length === 0 ? 'Draft'
+        : docOverallPct >= 100 ? 'Complete'
+          : 'In progress'
 
   const projectNavItems = [
     { label: 'Overview', icon: LayoutDashboard },
@@ -666,7 +715,6 @@ function App() {
     setShowProjectMenu(false)
     setShowProjectModal(true)
   }
-
   const closeProjectModal = () => {
     setShowProjectModal(false)
     setEditingProject(null)
@@ -895,6 +943,7 @@ function App() {
     setColumnSearch('')
     setColumnTypeFilter('all')
     setDictSort(null)
+    setDictSearch(''); setDictEntity('all'); setDictType('all'); setDictKey('all'); setDictDesc('all')
     setImportPreview(null)
     setActivePage('Overview')
   }
@@ -1752,6 +1801,34 @@ function App() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [saveStatus])
 
+  const startDrag = (event, node) => {
+    if (!canEdit || event.button !== 0) return
+    event.preventDefault()
+    const sx = event.clientX
+    const sy = event.clientY
+    const origin = { x: node.x, y: node.y }
+    let last = origin
+
+    const move = (e) => {
+      last = {
+        x: Math.max(0, origin.x + e.clientX - sx),
+        y: Math.max(0, origin.y + e.clientY - sy),
+      }
+      setDragging({ name: node.entity.name, ...last })
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      setDragging(null)
+      if (last.x !== origin.x || last.y !== origin.y) {
+        const pos = { x: Math.round(last.x), y: Math.round(last.y) }
+        setEntities((cur) => cur.map((e) => (e.name === node.entity.name ? { ...e, pos } : e)))
+      }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   const diagram = useMemo(() => {
     const cols = Math.min(MAX_COLS, Math.max(entities.length, 1))
     const nodeH = (e) => HEADER_H + Math.max(e.fields.length, 1) * ROW_H
@@ -1772,16 +1849,18 @@ function App() {
     entities.forEach((entity, i) => {
       const col = i % cols
       const row = Math.floor(i / cols)
+      const saved = dragging?.name === entity.name ? dragging : entity.pos
       nodes[entity.name] = {
         entity,
         col,
-        x: PAD + col * (NODE_W + GAP_X),
-        y: rowY[row],
+        x: saved?.x ?? PAD + col * (NODE_W + GAP_X),
+        y: saved?.y ?? rowY[row],
       }
     })
 
-    const width = PAD + cols * NODE_W + (cols - 1) * GAP_X + PAD_RIGHT
-    const height = Math.max(rowCount ? y - GAP_Y + PAD : 0, 200)
+    const list = Object.values(nodes)
+    const width = Math.max(300, ...list.map((n) => n.x + NODE_W)) + PAD_RIGHT
+    const height = Math.max(200, ...list.map((n) => n.y + nodeH(n.entity))) + PAD
 
     const edges = relationships
       .map((rel) => {
@@ -1797,13 +1876,13 @@ function App() {
         const by = b.y + HEADER_H + bi * ROW_H + ROW_H / 2
 
         let ax, bx, c1x, c2x
-        if (a.col === b.col) {
+        if (Math.abs(a.x - b.x) < NODE_W) {
           // อยู่คอลัมน์เดียวกัน (หรือเชื่อมตัวเอง): ออกฝั่งขวาแล้ววนกลับ
           ax = a.x + NODE_W
           bx = b.x + NODE_W
           c1x = ax + 70
           c2x = bx + 70
-        } else if (a.col < b.col) {
+        } else if (a.x < b.x) {
           ax = a.x + NODE_W
           bx = b.x
           c1x = ax + 60
@@ -1833,7 +1912,7 @@ function App() {
       .filter(Boolean)
 
     return { nodes: Object.values(nodes), edges, width, height }
-  }, [entities, relationships])
+  }, [entities, relationships, dragging])
 
   // ===== Export / Import =====
   const baseName = safeFileName(selectedProject?.name ?? 'project')
@@ -1841,19 +1920,9 @@ function App() {
   // ไม่ส่งป้ายชื่อความสัมพันธ์ไปในไฟล์ภาพ ให้ตรงกับที่แสดงบนหน้า ER Diagram
   const exportableDiagram = { ...diagram, edges: diagram.edges.map((edge) => ({ ...edge, label: '' })) }
 
-  const exportSql = (dialect) =>
-    downloadFile(
-      `${baseName}_${dialect}.sql`,
-      buildSql(entities, relationships, dialect, selectedProject?.name ?? ''),
-      'text/sql;charset=utf-8',
-    )
-
-  const exportDictionary = () =>
-    downloadFile(
-      `${baseName}_data_dictionary.csv`,
-      buildDictionaryCsv(entities, relationships),
-      'text/csv;charset=utf-8',
-    )
+  // เปิดหน้าต่างให้เลือกตาราง/ตั้งชื่อหัวคอลัมน์ก่อน แล้วค่อยสร้างไฟล์ (ดู ExportDialog.jsx)
+  const exportSql = (dialect) => setExportDialog({ kind: 'sql', dialect })
+  const exportDictionary = () => setExportDialog({ kind: 'csv' })
 
   const exportDiagramSvg = () =>
     downloadFile(
@@ -1871,75 +1940,151 @@ function App() {
       alert('ส่งออก PNG ไม่สำเร็จ: ' + error.message)
     }
   }
+  const exportDiagramJpeg = async () => {
+    try {
+      const svg = diagramToSvg(exportableDiagram, diagramLayout)
+      const png = await svgToPngBlob(svg, Math.ceil(diagram.width), Math.ceil(diagram.height), 2)
+      downloadFile(`${baseName}_er_diagram.jpg`, await pngToJpegBlob(png))
+    } catch (error) {
+      alert('ส่งออก JPEG ไม่สำเร็จ: ' + error.message)
+    }
+  }
+  const dictionaryMarkdown = () => {
+    const cell = (v) => String(v ?? '').replace(/\|/g, '/').replace(/\n/g, ' ')
+    const rows = sortedFields.map(
+      (f) =>
+        `| ${cell(f.entity)} | \`${cell(f.name)}\` | ${cell(f.type)} | ${cell(f.key) || '-'} | ` +
+        `${f.nullable === false ? 'NOT NULL' : 'NULL'} | ${cell(f.defaultValue) || '-'} | ${cell(f.description) || '-'} |`,
+    )
+    return [
+      '| Entity | Field | Type | Key | Nullable | Default | Description |',
+      '|---|---|---|---|---|---|---|',
+      ...rows,
+    ].join('\n')
+  }
+
+  const exportDictionaryXlsx = async () => {
+    let XLSX
+    try {
+      XLSX = await import('xlsx')
+    } catch {
+      alert('ยังไม่ได้ติดตั้งตัวสร้าง Excel — รัน npm install xlsx แล้วเปิดแอปใหม่')
+      return
+    }
+    const data = sortedFields.map((f) => ({
+      Entity: f.entity,
+      Field: f.name,
+      Type: f.type,
+      Key: f.key || '',
+      Nullable: f.nullable === false ? 'NOT NULL' : 'NULL',
+      Default: f.defaultValue || '',
+      Description: f.description || '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(data)
+    ws['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 12 }, { wch: 6 }, { wch: 11 }, { wch: 14 }, { wch: 50 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Data Dictionary')
+    XLSX.writeFile(wb, `${baseName}_data_dictionary.xlsx`)
+  }
+
+  const dictionaryExportItems = [
+    { label: 'CSV (.csv) — ตั้งค่าหัวคอลัมน์ได้', run: exportDictionary },
+    { label: 'Excel (.xlsx) — ตามที่กรองอยู่', run: exportDictionaryXlsx },
+    { label: 'Word (.doc) — ตามที่กรองอยู่', run: () => exportWord([{ title: 'Data Dictionary', content: dictionaryMarkdown() }], selectedProject?.name) },
+    { label: 'PDF — ตามที่กรองอยู่', run: () => exportPdf([{ title: 'Data Dictionary', content: dictionaryMarkdown() }], selectedProject?.name) },
+  ]
+
+  const diagramExportItems = [
+    { label: 'PNG (.png)', run: exportDiagramPng },
+    { label: 'SVG (.svg)', run: exportDiagramSvg },
+    { label: 'JPEG (.jpg)', run: exportDiagramJpeg },
+  ]
   const handleImportFile = async (event) => {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
 
     const isSql = /\.sql$/i.test(file.name)
-    const maxMb = isSql ? 25 : 5
+    const isExcel = /\.xlsx?$/i.test(file.name)
+    const maxMb = isSql ? 25 : isExcel ? 10 : 5
+    const fail = (error) => setImportPreview({ fileName: file.name, rows: [], warnings: [], error })
 
     if (file.size > maxMb * 1024 * 1024) {
-      setImportPreview({ fileName: file.name, rows: [], warnings: [], error: `ไฟล์ใหญ่เกิน ${maxMb} MB` })
+      fail(`ไฟล์ใหญ่เกิน ${maxMb} MB`)
       return
     }
-    if (!/\.(csv|tsv|txt|sql)$/i.test(file.name)) {
-      setImportPreview({
-        fileName: file.name,
-        rows: [],
-        warnings: [],
-        error: 'รองรับเฉพาะไฟล์ .csv หรือ .sql (ถ้าเป็น Excel ให้บันทึกเป็น CSV UTF-8 ก่อน)',
-      })
+    if (!/\.(csv|tsv|txt|sql|xlsx|xls)$/i.test(file.name)) {
+      fail('รองรับเฉพาะไฟล์ .csv, .xlsx หรือ .sql')
       return
     }
 
     try {
-      const text = await file.text()
-      setImportPreview(
-        isSql
-          ? { fileName: file.name, kind: 'sql', ...parseSqlSchema(text) }
-          : { fileName: file.name, ...parseImportCsv(text) },
-      )
+      if (isSql) {
+        const text = await file.text()
+        setImportPreview({ fileName: file.name, kind: 'sql', ...parseSqlSchema(text) })
+        return
+      }
+
+      let table
+      if (isExcel) {
+        let XLSX
+        try {
+          XLSX = await import('xlsx')
+        } catch {
+          fail('ยังไม่ได้ติดตั้งตัวอ่าน Excel — รันคำสั่ง npm install xlsx แล้วเปิดแอปใหม่ (หรือบันทึกไฟล์เป็น CSV UTF-8 ก่อน)')
+          return
+        }
+        const book = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+        const sheet = book.Sheets[book.SheetNames[0]]
+        table = tableFromMatrix(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }))
+      } else {
+        table = parseDelimited(await file.text())
+      }
+
+      if (!table.headers.length || !table.rows.length) {
+        fail('ไม่พบข้อมูลในไฟล์ (ต้องมีแถวหัวคอลัมน์และข้อมูลอย่างน้อย 1 แถว)')
+        return
+      }
+      setImportPreview({ fileName: file.name, kind: 'table', table })
     } catch (error) {
-      setImportPreview({ fileName: file.name, rows: [], warnings: [], error: 'อ่านไฟล์ไม่สำเร็จ: ' + error.message })
+      fail('อ่านไฟล์ไม่สำเร็จ: ' + error.message)
     }
   }
 
+  // ผลลัพธ์ตัวอย่างของไฟล์ SQL (ไฟล์ CSV / Excel คำนวณในหน้าจับคู่คอลัมน์ ImportMapper)
   const importResult = useMemo(() => {
-    if (!importPreview?.rows?.length) return null
-    return importPreview.kind === 'sql'
-      ? applySqlImport(entities, relationships, importPreview, makeImportEntity)
-      : mergeImport(entities, importPreview.rows, makeImportEntity)
+    if (importPreview?.kind !== 'sql' || !importPreview.rows?.length) return null
+    return applySqlImport(entities, relationships, importPreview, makeImportEntity)
   }, [importPreview, entities, relationships])
 
   const confirmImport = () => {
-    if (!canEdit || !importPreview?.rows?.length) return
+    if (!canEdit || importPreview?.kind !== 'sql' || !importResult) return
 
-    if (importPreview.kind === 'sql') {
-      const result = applySqlImport(entities, relationships, importPreview, makeImportEntity)
-      setEntities(result.entities)
-      if (result.addedRelationships) setRelationships(result.relationships)
-      logChange(
-        'create',
-        'import',
-        importPreview.fileName,
-        `นำเข้า SQL: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column, ${result.addedRelationships} Relationship (ข้าม ${result.skippedFields} Column ที่ซ้ำ)`,
-      )
-      notify(
-        `นำเข้าสำเร็จ: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column, ${result.addedRelationships} Relationship`,
-        'success',
-      )
-      setImportPreview(null)
-      return
-    }
-
-    const result = mergeImport(entities, importPreview.rows, makeImportEntity)
+    const result = importResult
     setEntities(result.entities)
+    if (result.addedRelationships) setRelationships(result.relationships)
     logChange(
       'create',
       'import',
       importPreview.fileName,
-      `นำเข้า CSV: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column (ข้าม ${result.skippedFields} ที่ซ้ำ)`,
+      `นำเข้า SQL: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column, ${result.addedRelationships} Relationship (ข้าม ${result.skippedFields} Column ที่ซ้ำ)`,
+    )
+    notify(
+      `นำเข้าสำเร็จ: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column, ${result.addedRelationships} Relationship`,
+      'success',
+    )
+    setImportPreview(null)
+  }
+
+  // นำเข้าจาก CSV / Excel หลังผู้ใช้จับคู่คอลัมน์แล้ว
+  const applyMappedImport = (result, { fileName }) => {
+    if (!canEdit) return
+    setEntities(result.entities)
+    logChange(
+      'create',
+      'import',
+      fileName,
+      `นำเข้าไฟล์: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column, เติมข้อมูลให้ Column เดิม ${result.filledFields} (ข้าม ${result.skippedFields - result.filledFields} ที่ซ้ำ)`,
     )
     notify(
       `นำเข้าสำเร็จ: เพิ่ม ${result.addedEntities} Entity, ${result.addedFields} Column`,
@@ -2435,8 +2580,8 @@ function App() {
                   <StatCard
                     icon={Activity}
                     label="Documentation"
-                    value={`${docPct}%`}
-                    note={`${describedCount}/${allFields.length} columns described`}
+                    value={`${docOverallPct}%`}
+                    note={`${docStatus} · ${docs.length} หน้า · ${describedCount}/${allFields.length} columns described`}
                     color="orange"
                   />
                 </div>
@@ -2559,7 +2704,7 @@ function App() {
                         </button>
                       )}
                     </div>
-                    
+
 
                     <div className="search-box">
                       <Search size={17} />
@@ -2723,939 +2868,984 @@ function App() {
             )
           )}
 
-        {selectedProject && activePage === 'Data Dictionary' && (
-          <section className="panel">
-            <div className="panel-heading">
-              <div><h2><BookOpen size={19} /> Data Dictionary</h2><p>Search fields across all documented entities · คลิกหัวคอลัมน์เพื่อเรียงข้อมูล</p></div>
-              <div className="panel-heading-actions">
-                <span className="result-count">{sortedFields.length} fields</span>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={exportDictionary}
-                  disabled={!allFields.length}
-                >
-                  <Download size={14} /> Export CSV
-                </button>
-              </div>
-            </div>
-            <div className="search-box dictionary-search">
-              <Search size={17} />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search field, type, entity, or description..." />
-            </div>
-            <div className="field-table-wrap">
-              <table className="field-table">
-                <thead>
-                  <tr>
-                    {sortHeader('Field', 'name')}
-                    {sortHeader('Entity', 'entity')}
-                    {sortHeader('Type', 'type')}
-                    {sortHeader('Key', 'key')}
-                    {sortHeader('Description', 'description')}
-                  </tr>
-                </thead>
-                <tbody>{sortedFields.map((field) => (
-                  <tr key={`${field.entity}-${field.name}`}><td className="field-name">{field.name}</td><td><span className={`entity-badge ${field.color}`}>{field.entity}</span></td><td><span className="type-tag">{field.type}</span></td><td>{field.key && <span className={`key-tag ${field.key.toLowerCase()}`}>{field.key}</span>}</td><td>{field.description}</td></tr>
-                ))}</tbody>
-              </table>
-              {sortedFields.length === 0 && <p className="empty-state">No matching fields found.</p>}
-            </div>
-          </section>
-        )}
-        {selectedProject && activePage === 'Query' && (
-          <Query
-            entities={entities}
-            relationships={relationships}
-            onOpenEntity={(name) => {
-              setSelectedEntity(name)
-              setActivePage('Entities')
-            }}
-          />
-        )}
-
-        {selectedProject && activePage === 'Relationships' && (
-          <section className="panel">
-            <div className="panel-heading">
-              <div>
-                <h2>
-                  <Link2 size={19} /> Relationship Catalog
-                </h2>
-                <p>
-                  Manage connections between database entities
-                </p>
-              </div>
-
-              {canEdit && (
-                <button
-                  className="primary-button"
-                  onClick={() => openRelationshipModal()}
-                >
-                  <Plus size={16} />
-                  Add Relationship
-                </button>
-              )}
-            </div>
-
-            <div className="relationship-list">
-              {relationships.map((rel) => (
-                <div
-                  className="relationship-row"
-                  key={rel.id}
-                >
-                  <div className="relationship-content">
-                    <div className="relationship-entities">
-                      <span className="entity-badge blue">
-                        {rel.fromEntity}
-                      </span>
-
-                      <div className="relationship-connection">
-                        <ArrowRight size={18} />
-
-                        <span>{rel.type}</span>
-                      </div>
-
-                      <span className="entity-badge purple">
-                        {rel.toEntity}
-                      </span>
-                    </div>
-
-                    <div className="relationship-fields">
-                      <code>
-                        {rel.fromEntity}.{rel.fromField}
-                      </code>
-
-                      <ArrowRight size={14} />
-
-                      <code>
-                        {rel.toEntity}.{rel.toField}
-                      </code>
-                    </div>
-
-                    <strong className="relationship-label">
-                      {rel.label || 'No label'}
-                    </strong>
-
-                    <p>{rel.detail || 'No description'}</p>
-                  </div>
-
-                  {canEdit && (
-                    <div className="relationship-actions">
-                      <button
-                        type="button"
-                        title="Edit Relationship"
-                        onClick={() => openRelationshipModal(rel)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-
-                      <button
-                        type="button"
-                        title="Delete Relationship"
-                        onClick={() =>
-                          handleDeleteRelationship(rel.id)
-                        }
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {relationships.length === 0 && (
-                <div className="empty-state">
-                  <Link2 size={30} />
-                  <p>No relationships yet</p>
-                  {canEdit && (
-                    <span>
-                      Click Add Relationship to create your first connection.
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {selectedProject && activePage === 'ER Diagram' && (
-          <section className="panel diagram-panel">
-            <div className="panel-heading">
-              <div>
-                <h2><GitBranch size={19} /> Entity Relationship Diagram</h2>
-                <p>Diagram updates automatically from your entities and relationships</p>
-              </div>
-              <div className="panel-heading-actions">
-                <span className="result-count">
-                  {entities.length} entities · {diagram.edges.length} links
-                </span>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={exportDiagramPng}
-                  disabled={!entities.length}
-                >
-                  <Download size={14} /> PNG
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={exportDiagramSvg}
-                  disabled={!entities.length}
-                >
-                  <Download size={14} /> SVG
-                </button>
-              </div>
-            </div>
-
-            {entities.length === 0 ? (
-              <div className="empty-state big">
-                <GitBranch size={30} />
-                <p>No entities to display</p>
-                <span>Create an entity first, then it will appear here.</span>
-              </div>
-            ) : (
-              <div className="diagram-canvas">
-                <div className="er-board" style={{ width: diagram.width, height: diagram.height }}>
-                  <svg className="er-lines" width={diagram.width} height={diagram.height}>
-                    {diagram.edges.map((edge) => (
-                      <g key={edge.id}>
-                        <path d={edge.d} stroke={edge.color} strokeWidth="2" fill="none" />
-                        <circle cx={edge.ax} cy={edge.ay} r="3.5" fill={edge.color} />
-                        <circle cx={edge.bx} cy={edge.by} r="3.5" fill={edge.color} />
-
-                        <text x={edge.ax + edge.dirA * 14} y={edge.ay - 6} fontSize="11" fontWeight="700"
-                          textAnchor="middle" fill={edge.color}>{edge.fromCard}</text>
-                        <text x={edge.bx + edge.dirB * 14} y={edge.by - 6} fontSize="11" fontWeight="700"
-                          textAnchor="middle" fill={edge.color}>{edge.toCard}</text>
-                      </g>
-                    ))}
-                  </svg>
-
-                  {diagram.nodes.map(({ entity, x, y }) => {
-                    const Icon = entity.icon
-                    const hex = COLOR_HEX[entity.color] ?? COLOR_HEX.blue
-                    const tint = COLOR_TINT[entity.color] ?? COLOR_TINT.blue
-                    return (
-                      <div
-                        key={entity.name}
-                        className="er-node"
-                        style={{
-                          left: x,
-                          top: y,
-                          width: NODE_W,
-                          boxShadow: `0 0 0 1.5px ${hex}, 0 8px 22px #303b5a12`,
-                        }}
-                      >
-                        <div className="er-node-header" style={{ background: tint, color: hex }}>
-                          <Icon size={18} />
-                          <strong>{entity.name}</strong>
-                          <span>{entity.fields.length} fields</span>
-                        </div>
-
-                        {entity.fields.length === 0 && <div className="er-field empty">No columns yet</div>}
-
-                        {entity.fields.map((field) => (
-                          <div className="er-field" key={field.name}>
-                            <span className="er-field-icon">
-                              {field.key === 'PK' ? '🔑' : field.key === 'FK' ? '🔗' : '•'}
-                            </span>
-                            <strong title={field.name}>{field.name}</strong>
-                            <small>{field.type}{field.key ? ` · ${field.key}` : ''}</small>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            <p className="diagram-footnote">
-              Conceptual relationship view. Confirm the foreign keys and cardinality against the actual database schema.
-            </p>
-          </section>
-        )}
-
-        {selectedProject && activePage === 'Documentation' && (
-          <Documentation
-            key={selectedProject.id}
-            docs={docs}
-            setDocs={setDocs}
-            entities={entities}
-            relationships={relationships}
-            displayName={displayName}
-            projectName={selectedProject.name}
-            onLog={logChange}
-            readOnly={!canEdit}
-          />
-        )}
-
-        {selectedProject && activePage === 'Import / Export' && (
-          <div className="io-grid">
+          {selectedProject && activePage === 'Data Dictionary' && (
             <section className="panel">
               <div className="panel-heading">
-                <div>
-                  <h2><Download size={19} /> Export</h2>
-                  <p>ดาวน์โหลดข้อมูลของโปรเจกต์นี้ออกไปใช้งานต่อ</p>
+                <div><h2><BookOpen size={19} /> Data Dictionary</h2><p>Search fields across all documented entities · คลิกหัวคอลัมน์เพื่อเรียงข้อมูล</p></div>
+                <div className="panel-heading-actions">
+                  <span className="result-count">{sortedFields.length} fields</span>
+                  <ExportMenu items={dictionaryExportItems} disabled={!allFields.length} />
                 </div>
               </div>
-              <div className="io-list">
-                <div className="io-row">
-                  <div>
-                    <strong>SQL script — PostgreSQL</strong>
-                    <small>CREATE TABLE, PRIMARY KEY, UNIQUE, COMMENT และ FOREIGN KEY จาก Relationship</small>
-                  </div>
-                  <button className="secondary-button" onClick={() => exportSql('postgres')} disabled={!entities.length}>
-                    Download .sql
-                  </button>
-                </div>
-                <div className="io-row">
-                  <div>
-                    <strong>SQL script — MySQL / MariaDB</strong>
-                    <small>ชนิดข้อมูลและ COMMENT แบบ MySQL</small>
-                  </div>
-                  <button className="secondary-button" onClick={() => exportSql('mysql')} disabled={!entities.length}>
-                    Download .sql
-                  </button>
-                </div>
-                <div className="io-row">
-                  <div>
-                    <strong>Data Dictionary (CSV)</strong>
-                    <small>เปิดใน Excel ได้ (รองรับภาษาไทย) — ใช้เป็นไฟล์สำหรับนำเข้ากลับได้ด้วย</small>
-                  </div>
-                  <button className="secondary-button" onClick={exportDictionary} disabled={!allFields.length}>
-                    Download .csv
-                  </button>
-                </div>
-                <div className="io-row">
-                  <div>
-                    <strong>ER Diagram — PNG</strong>
-                    <small>ภาพความละเอียด 2 เท่า สำหรับใส่เอกสารหรือสไลด์</small>
-                  </div>
-                  <button className="secondary-button" onClick={exportDiagramPng} disabled={!entities.length}>
-                    Download .png
-                  </button>
-                </div>
-                <div className="io-row">
-                  <div>
-                    <strong>ER Diagram — SVG</strong>
-                    <small>ภาพเวกเตอร์ ขยายได้ไม่แตก</small>
-                  </div>
-                  <button className="secondary-button" onClick={exportDiagramSvg} disabled={!entities.length}>
-                    Download .svg
-                  </button>
-                </div>
+              <div className="search-box dictionary-search">
+                <Search size={17} />
+                <input value={dictSearch} onChange={(e) => setDictSearch(e.target.value)} placeholder="Search field, type, entity, or description..." />
+              </div>
+              <div className="entity-toolbar">
+                <select className="filter-select" aria-label="Entity" value={dictEntity} onChange={(e) => setDictEntity(e.target.value)}>
+                  <option value="all">ทุก Entity</option>
+                  {entities.map((e) => <option key={e.name} value={e.name}>{e.name}</option>)}
+                </select>
+                <select className="filter-select" aria-label="Type" value={dictType} onChange={(e) => setDictType(e.target.value)}>
+                  <option value="all">ทุก Type</option>
+                  {[...new Set(allFields.map((f) => f.type))].sort().map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select className="filter-select" aria-label="Key" value={dictKey} onChange={(e) => setDictKey(e.target.value)}>
+                  <option value="all">ทุก Key</option>
+                  <option value="PK">PK</option>
+                  <option value="FK">FK</option>
+                  <option value="UK">UK</option>
+                  <option value="none">ไม่มี Key</option>
+                </select>
+                <select className="filter-select" aria-label="Description" value={dictDesc} onChange={(e) => setDictDesc(e.target.value)}>
+                  <option value="all">คำอธิบาย: ทั้งหมด</option>
+                  <option value="empty">ยังไม่มีคำอธิบาย</option>
+                  <option value="filled">มีคำอธิบายแล้ว</option>
+                </select>
+              </div>
+              <div className="field-table-wrap">
+                <table className="field-table">
+                  <thead>
+                    <tr>
+                      {sortHeader('Field', 'name')}
+                      {sortHeader('Entity', 'entity')}
+                      {sortHeader('Type', 'type')}
+                      {sortHeader('Key', 'key')}
+                      {sortHeader('Description', 'description')}
+                    </tr>
+                  </thead>
+                  <tbody>{sortedFields.map((field) => (
+                    <tr key={`${field.entity}-${field.name}`}><td className="field-name">{field.name}</td><td><span className={`entity-badge ${field.color}`}>{field.entity}</span></td><td><span className="type-tag">{field.type}</span></td><td>{field.key && <span className={`key-tag ${field.key.toLowerCase()}`}>{field.key}</span>}</td><td>{field.description}</td></tr>
+                  ))}</tbody>
+                </table>
+                {sortedFields.length === 0 && <p className="empty-state">No matching fields found.</p>}
               </div>
             </section>
+          )}
+          {selectedProject && activePage === 'Query' && (
+            <Query
+              entities={entities}
+              relationships={relationships}
+              onOpenEntity={(name) => {
+                setSelectedEntity(name)
+                setActivePage('Entities')
+              }}
+            />
+          )}
 
+          {selectedProject && activePage === 'Relationships' && (
             <section className="panel">
               <div className="panel-heading">
                 <div>
-                  <h2><Upload size={19} /> Import</h2>
-                  <p>นำเข้า Entity, Column และ Relationship จากไฟล์ CSV หรือ SQL (ข้ามรายการที่ชื่อซ้ำ ไม่เขียนทับของเดิม)</p>                  </div>
-              </div>
-              <div className="io-list">
-                <div className="io-row">
-                  <div>
-                    <strong>เทมเพลต CSV</strong>
-                    <small>คอลัมน์: Entity, Field, Type, Key, Nullable, Default, Description</small>
-                  </div>
-                  <button
-                    className="secondary-button"
-                    onClick={() => downloadFile('import_template.csv', buildImportTemplate(), 'text/csv;charset=utf-8')}
-                  >
-                    Download template
-                  </button>
+                  <h2>
+                    <Link2 size={19} /> Relationship Catalog
+                  </h2>
+                  <p>
+                    Manage connections between database entities
+                  </p>
                 </div>
-                {canEdit ? (
-                  <div className="io-row">
-                    <div>
-                      <strong>เลือกไฟล์ที่จะนำเข้า</strong>
-                      <small>CSV ไม่เกิน 5 MB · SQL (CREATE TABLE) ไม่เกิน 25 MB · ไฟล์ Excel ให้บันทึกเป็น CSV UTF-8 ก่อน</small>                      </div>
-                    <label className="secondary-button io-file">
-                      <Upload size={15} /> เลือกไฟล์ CSV / SQL
-                      <input type="file" accept=".csv,.tsv,.sql,.txt,text/csv" onChange={handleImportFile} />
-                    </label>
-                  </div>
-                ) : (
-                  <div className="io-row">
-                    <div>
-                      <strong>นำเข้าข้อมูล</strong>
-                      <small>ต้องมีสิทธิ์ Editor หรือ Admin</small>
-                    </div>
-                  </div>
+
+                {canEdit && (
+                  <button
+                    className="primary-button"
+                    onClick={() => openRelationshipModal()}
+                  >
+                    <Plus size={16} />
+                    Add Relationship
+                  </button>
                 )}
               </div>
 
-              {importPreview && (
-                <div className={`io-preview ${importPreview.error ? 'error' : ''}`}>
-                  <strong>{importPreview.fileName}</strong>
-                  {importPreview.error ? (
-                    <p>{importPreview.error}</p>
-                  ) : (
-                    <>
-                      <div className="io-preview-stats">
-                        <span>{importPreview.rows.length} {importPreview.kind === 'sql' ? 'Column' : 'แถว'}</span>
-                        <span>เพิ่ม Entity ใหม่ {importResult?.addedEntities ?? 0}</span>
-                        <span>เพิ่ม Column {importResult?.addedFields ?? 0}</span>
-                        {importPreview.kind === 'sql' && (
-                          <span>เพิ่ม Relationship {importResult?.addedRelationships ?? 0}</span>
-                        )}
-                        <span>ข้าม (ซ้ำ) {importResult?.skippedFields ?? 0}</span>
+              <div className="relationship-list">
+                {relationships.map((rel) => (
+                  <div
+                    className="relationship-row"
+                    key={rel.id}
+                  >
+                    <div className="relationship-content">
+                      <div className="relationship-entities">
+                        <span className="entity-badge blue">
+                          {rel.fromEntity}
+                        </span>
+
+                        <div className="relationship-connection">
+                          <ArrowRight size={18} />
+
+                          <span>{rel.type}</span>
+                        </div>
+
+                        <span className="entity-badge purple">
+                          {rel.toEntity}
+                        </span>
                       </div>
 
-                      {importPreview.warnings.length > 0 && (
-                        <ul className="io-warnings">
-                          {importPreview.warnings.slice(0, 50).map((w, i) => <li key={i}>{w}</li>)}
-                          {importPreview.warnings.length > 50 && (
-                            <li>…และอีก {importPreview.warnings.length - 50} รายการ</li>
-                          )}
-                        </ul>
-                      )}
+                      <div className="relationship-fields">
+                        <code>
+                          {rel.fromEntity}.{rel.fromField}
+                        </code>
 
-                      <div className="field-table-wrap">
-                        <table className="field-table">
-                          <thead>
-                            <tr><th>Entity</th><th>Field</th><th>Type</th><th>Key</th><th>Null</th></tr>
-                          </thead>
-                          <tbody>
-                            {importPreview.rows.slice(0, 8).map((r, i) => (
-                              <tr key={i}>
-                                <td>{r.entity}</td>
-                                <td className="field-name">{r.field}</td>
-                                <td><span className="type-tag">{r.type}</span></td>
-                                <td>{r.key && <span className={`key-tag ${r.key.toLowerCase()}`}>{r.key}</span>}</td>
-                                <td>{r.nullable ? 'NULL' : 'NOT NULL'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                        <ArrowRight size={14} />
+
+                        <code>
+                          {rel.toEntity}.{rel.toField}
+                        </code>
                       </div>
-                    </>
-                  )}
 
-                  <div className="io-preview-actions">
-                    {!importPreview.error && importPreview.rows.length > 0 && canEdit && (
-                      <button className="primary-button" onClick={confirmImport}>
-                        <Upload size={15} /> ยืนยันนำเข้า
-                      </button>
+                      <strong className="relationship-label">
+                        {rel.label || 'No label'}
+                      </strong>
+
+                      <p>{rel.detail || 'No description'}</p>
+                    </div>
+
+                    {canEdit && (
+                      <div className="relationship-actions">
+                        <button
+                          type="button"
+                          title="Edit Relationship"
+                          onClick={() => openRelationshipModal(rel)}
+                        >
+                          <Pencil size={16} />
+                        </button>
+
+                        <button
+                          type="button"
+                          title="Delete Relationship"
+                          onClick={() =>
+                            handleDeleteRelationship(rel.id)
+                          }
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     )}
-                    <button className="secondary-button" onClick={() => setImportPreview(null)}>
-                      {importPreview.error ? 'ปิด' : 'ยกเลิก'}
+                  </div>
+                ))}
+
+                {relationships.length === 0 && (
+                  <div className="empty-state">
+                    <Link2 size={30} />
+                    <p>No relationships yet</p>
+                    {canEdit && (
+                      <span>
+                        Click Add Relationship to create your first connection.
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {selectedProject && activePage === 'ER Diagram' && (
+            <section className="panel diagram-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2><GitBranch size={19} /> Entity Relationship Diagram</h2>
+                  <p>Diagram updates automatically from your entities and relationships</p>
+                </div>
+                <div className="panel-heading-actions">
+                  <span className="result-count">
+                    {entities.length} entities · {diagram.edges.length} links
+                  </span>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setEntities((cur) => cur.map(({ pos, ...e }) => e))}
+                    >
+                      จัดเรียงอัตโนมัติ
                     </button>
+                  )}
+                  <ExportMenu items={diagramExportItems} disabled={!entities.length} />
+                </div>
+              </div>
+
+              {entities.length === 0 ? (
+                <div className="empty-state big">
+                  <GitBranch size={30} />
+                  <p>No entities to display</p>
+                  <span>Create an entity first, then it will appear here.</span>
+                </div>
+              ) : (
+                <div className="diagram-canvas">
+                  <div className="er-board" style={{ width: diagram.width, height: diagram.height }}>
+                    <svg className="er-lines" width={diagram.width} height={diagram.height}>
+                      {diagram.edges.map((edge) => (
+                        <g key={edge.id}>
+                          <path d={edge.d} stroke={edge.color} strokeWidth="2" fill="none" />
+                          <circle cx={edge.ax} cy={edge.ay} r="3.5" fill={edge.color} />
+                          <circle cx={edge.bx} cy={edge.by} r="3.5" fill={edge.color} />
+
+                          <text x={edge.ax + edge.dirA * 14} y={edge.ay - 6} fontSize="11" fontWeight="700"
+                            textAnchor="middle" fill={edge.color}>{edge.fromCard}</text>
+                          <text x={edge.bx + edge.dirB * 14} y={edge.by - 6} fontSize="11" fontWeight="700"
+                            textAnchor="middle" fill={edge.color}>{edge.toCard}</text>
+                        </g>
+                      ))}
+                    </svg>
+                    {diagram.nodes.map((node) => {
+                      const { entity, x, y } = node
+                      const Icon = entity.icon
+                      const hex = COLOR_HEX[entity.color] ?? COLOR_HEX.blue
+                      const tint = COLOR_TINT[entity.color] ?? COLOR_TINT.blue
+                      return (
+                        <div
+                          key={entity.name}
+                          className={`er-node ${dragging?.name === entity.name ? 'dragging' : ''}`}
+                          style={{
+                            left: x,
+                            top: y,
+                            width: NODE_W,
+                            boxShadow: `0 0 0 1.5px ${hex}, 0 8px 22px #303b5a12`,
+                          }}
+                        >
+                          <div
+                            className={`er-node-header ${canEdit ? 'draggable' : ''}`}
+                            style={{ background: tint, color: hex }}
+                            onPointerDown={(e) => startDrag(e, node)}
+                          >
+                            <Icon size={18} />
+                            <strong>{entity.name}</strong>
+                            <span>{entity.fields.length} fields</span>
+                          </div>
+
+                          {entity.fields.length === 0 && <div className="er-field empty">No columns yet</div>}
+
+                          {entity.fields.map((field) => (
+                            <div className="er-field" key={field.name}>
+                              <span className="er-field-icon">
+                                {field.key === 'PK' ? '🔑' : field.key === 'FK' ? '🔗' : '•'}
+                              </span>
+                              <strong title={field.name}>{field.name}</strong>
+                              <small>{field.type}{field.key ? ` · ${field.key}` : ''}</small>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
+
+              <p className="diagram-footnote">
+                Conceptual relationship view. Confirm the foreign keys and cardinality against the actual database schema.
+              </p>
             </section>
-          </div>
-        )}
+          )}
 
-        {selectedProject && activePage === 'Notes' && (
-          <section className="panel">
-            <div className="panel-heading">
-              <div>
-                <h2><FileText size={19} /> Project Notes</h2>
-                <p>บันทึกข้อตกลง วิธีใช้ หรือข้อมูลเพิ่มเติมของโปรเจกต์นี้ (บันทึกอัตโนมัติ)</p>
-              </div>
-            </div>
-            <div className="notes-body">
-              <textarea
-                rows={16}
-                readOnly={!canEdit}
-                placeholder="เช่น ข้อตกลงการตั้งชื่อตาราง, วิธีเชื่อมต่อฐานข้อมูล, สิ่งที่ต้องระวัง..."
-                value={selectedProject.notes ?? ''}
-                onFocus={() => { notesFocusRef.current = selectedProject.notes ?? '' }}
-                onChange={(event) => setNotes(event.target.value)}
-                onBlur={() => {
-                  if (notesFocusRef.current !== (selectedProject.notes ?? '')) {
-                    logChange('update', 'note', 'Project notes', 'แก้ไข Project Notes')
-                  }
-                }}
-              />
-            </div>
-          </section>
-        )}
+          {selectedProject && activePage === 'Documentation' && (
+            <Documentation
+              key={selectedProject.id}
+              docs={docs}
+              setDocs={setDocs}
+              entities={entities}
+              relationships={relationships}
+              displayName={displayName}
+              projectName={selectedProject.name}
+              onLog={logChange}
+              readOnly={!canEdit}
+            />
+          )}
 
-        {selectedProject && activePage === 'Changelog' && (
-          <section className="panel">
-            <div className="panel-heading">
-              <div>
-                <h2><Clock3 size={19} /> Changelog</h2>
-                <p>ประวัติการแก้ไขของโปรเจกต์นี้</p>
-              </div>
-              <span className="result-count">{visibleChangelog.length} entries</span>
-            </div>
-
-            {visibleChangelog.length === 0 ? (
-              <div className="empty-state big">
-                <Clock3 size={30} />
-                <p>ยังไม่มีประวัติการแก้ไข</p>
-                <span>เมื่อมีการเพิ่ม แก้ไข หรือลบข้อมูล รายการจะแสดงที่นี่</span>
-              </div>
-            ) : (
-              <div className="timeline">
-                {visibleChangelog.map((log) => (
-                  <div className="timeline-item" key={log.id}>
-                    <span
-                      className={`timeline-dot ${log.action === 'delete'
-                        ? 'red-dot'
-                        : log.action === 'create'
-                          ? 'green-dot'
-                          : 'purple-dot'
-                        }`}
-                    />
+          {selectedProject && activePage === 'Import / Export' && (
+            <div className="io-grid">
+              <section className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2><Download size={19} /> Export</h2>
+                    <p>ดาวน์โหลดข้อมูลของโปรเจกต์นี้ออกไปใช้งานต่อ</p>
+                  </div>
+                </div>
+                <div className="io-list">
+                  <div className="io-row">
                     <div>
-                      <strong>{log.summary}</strong>
-                      <p>{log.target} · {log.name}</p>
-                      <small>
-                        {log.by || 'Unknown'} · {new Date(log.at).toLocaleString('th-TH')}
-                      </small>
+                      <strong>SQL script — PostgreSQL</strong>
+                      <small>CREATE TABLE, PRIMARY KEY, UNIQUE, COMMENT และ FOREIGN KEY — เลือกตารางและเปลี่ยนชื่อตาราง/คอลัมน์ก่อนสร้างไฟล์ได้</small>
+                    </div>
+                    <button className="secondary-button" onClick={() => exportSql('postgres')} disabled={!entities.length}>
+                      ตั้งค่า &amp; ดาวน์โหลด .sql
+                    </button>
+                  </div>
+                  <div className="io-row">
+                    <div>
+                      <strong>SQL script — MySQL / MariaDB</strong>
+                      <small>ชนิดข้อมูลและ COMMENT แบบ MySQL</small>
+                    </div>
+                    <button className="secondary-button" onClick={() => exportSql('mysql')} disabled={!entities.length}>
+                      ตั้งค่า &amp; ดาวน์โหลด .sql
+                    </button>
+                  </div>
+                  <div className="io-row">
+                    <div>
+                      <strong>Data Dictionary (CSV)</strong>
+                      <small>เปิดใน Excel ได้ (รองรับภาษาไทย) — ตั้งชื่อหัวคอลัมน์เองและจัดลำดับได้ ใช้นำเข้ากลับได้ด้วย</small>
+                    </div>
+                    <button className="secondary-button" onClick={exportDictionary} disabled={!allFields.length}>
+                      ตั้งค่า &amp; ดาวน์โหลด .csv
+                    </button>
+                  </div>
+                  <div className="io-row">
+                    <div>
+                      <strong>ER Diagram — PNG</strong>
+                      <small>ภาพความละเอียด 2 เท่า สำหรับใส่เอกสารหรือสไลด์</small>
+                    </div>
+                    <button className="secondary-button" onClick={exportDiagramPng} disabled={!entities.length}>
+                      Download .png
+                    </button>
+                  </div>
+                  <div className="io-row">
+                    <div>
+                      <strong>ER Diagram — SVG</strong>
+                      <small>ภาพเวกเตอร์ ขยายได้ไม่แตก</small>
+                    </div>
+                    <button className="secondary-button" onClick={exportDiagramSvg} disabled={!entities.length}>
+                      Download .svg
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2><Upload size={19} /> Import</h2>
+                    <p>นำเข้าจากไฟล์ CSV, Excel หรือ SQL — ไฟล์ CSV / Excel เลือกจับคู่คอลัมน์เองได้ (ไม่เขียนทับของเดิม)</p>
+                  </div>
+                </div>
+                <div className="io-list">
+                  <div className="io-row">
+                    <div>
+                      <strong>เทมเพลต CSV</strong>
+                      <small>ใช้เป็นตัวอย่างได้ — ไฟล์ของคุณจะใช้หัวคอลัมน์ชื่ออื่นก็ได้ เพราะเลือกจับคู่เองในขั้นถัดไป</small>
+                    </div>
+                    <button
+                      className="secondary-button"
+                      onClick={() => downloadFile('import_template.csv', buildImportTemplate(), 'text/csv;charset=utf-8')}
+                    >
+                      Download template
+                    </button>
+                  </div>
+                  {canEdit ? (
+                    <div className="io-row">
+                      <div>
+                        <strong>เลือกไฟล์ที่จะนำเข้า</strong>
+                        <small>CSV ไม่เกิน 5 MB · Excel (.xlsx) ไม่เกิน 10 MB (ใช้ชีตแรก) · SQL (CREATE TABLE) ไม่เกิน 25 MB</small>
+                      </div>
+                      <label className="secondary-button io-file">
+                        <Upload size={15} /> เลือกไฟล์ CSV / Excel / SQL
+                        <input type="file" accept=".csv,.tsv,.xlsx,.xls,.sql,.txt,text/csv" onChange={handleImportFile} />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="io-row">
+                      <div>
+                        <strong>นำเข้าข้อมูล</strong>
+                        <small>ต้องมีสิทธิ์ Editor หรือ Admin</small>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {importPreview?.kind === 'table' && (
+                  <ImportMapper
+                    key={importPreview.fileName}
+                    table={importPreview.table}
+                    fileName={importPreview.fileName}
+                    entities={entities}
+                    canEdit={canEdit}
+                    makeEntity={makeImportEntity}
+                    onApply={applyMappedImport}
+                    onCancel={() => setImportPreview(null)}
+                  />
+                )}
+
+                {importPreview && importPreview.kind !== 'table' && (
+                  <div className={`io-preview ${importPreview.error ? 'error' : ''}`}>
+                    <strong>{importPreview.fileName}</strong>
+                    {importPreview.error ? (
+                      <p>{importPreview.error}</p>
+                    ) : (
+                      <>
+                        <div className="io-preview-stats">
+                          <span>{importPreview.rows.length} {importPreview.kind === 'sql' ? 'Column' : 'แถว'}</span>
+                          <span>เพิ่ม Entity ใหม่ {importResult?.addedEntities ?? 0}</span>
+                          <span>เพิ่ม Column {importResult?.addedFields ?? 0}</span>
+                          {importPreview.kind === 'sql' && (
+                            <span>เพิ่ม Relationship {importResult?.addedRelationships ?? 0}</span>
+                          )}
+                          <span>ข้าม (ซ้ำ) {importResult?.skippedFields ?? 0}</span>
+                        </div>
+
+                        {importPreview.warnings.length > 0 && (
+                          <ul className="io-warnings">
+                            {importPreview.warnings.slice(0, 50).map((w, i) => <li key={i}>{w}</li>)}
+                            {importPreview.warnings.length > 50 && (
+                              <li>…และอีก {importPreview.warnings.length - 50} รายการ</li>
+                            )}
+                          </ul>
+                        )}
+
+                        <div className="field-table-wrap">
+                          <table className="field-table">
+                            <thead>
+                              <tr><th>Entity</th><th>Field</th><th>Type</th><th>Key</th><th>Null</th></tr>
+                            </thead>
+                            <tbody>
+                              {importPreview.rows.slice(0, 8).map((r, i) => (
+                                <tr key={i}>
+                                  <td>{r.entity}</td>
+                                  <td className="field-name">{r.field}</td>
+                                  <td><span className="type-tag">{r.type}</span></td>
+                                  <td>{r.key && <span className={`key-tag ${r.key.toLowerCase()}`}>{r.key}</span>}</td>
+                                  <td>{r.nullable ? 'NULL' : 'NOT NULL'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="io-preview-actions">
+                      {!importPreview.error && importPreview.rows.length > 0 && canEdit && (
+                        <button className="primary-button" onClick={confirmImport}>
+                          <Upload size={15} /> ยืนยันนำเข้า
+                        </button>
+                      )}
+                      <button className="secondary-button" onClick={() => setImportPreview(null)}>
+                        {importPreview.error ? 'ปิด' : 'ยกเลิก'}
+                      </button>
                     </div>
                   </div>
-                ))}
+                )}
+              </section>
+            </div>
+          )}
+
+          {selectedProject && activePage === 'Notes' && (
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2><FileText size={19} /> Project Notes</h2>
+                  <p>บันทึกข้อตกลง วิธีใช้ หรือข้อมูลเพิ่มเติมของโปรเจกต์นี้ (บันทึกอัตโนมัติ)</p>
+                </div>
               </div>
-            )}
-          </section>
-        )}
+              <div className="notes-body">
+                <textarea
+                  rows={16}
+                  readOnly={!canEdit}
+                  placeholder="เช่น ข้อตกลงการตั้งชื่อตาราง, วิธีเชื่อมต่อฐานข้อมูล, สิ่งที่ต้องระวัง..."
+                  value={selectedProject.notes ?? ''}
+                  onFocus={() => { notesFocusRef.current = selectedProject.notes ?? '' }}
+                  onChange={(event) => setNotes(event.target.value)}
+                  onBlur={() => {
+                    if (notesFocusRef.current !== (selectedProject.notes ?? '')) {
+                      logChange('update', 'note', 'Project notes', 'แก้ไข Project Notes')
+                    }
+                  }}
+                />
+              </div>
+            </section>
+          )}
 
-        {selectedProject && activePage === 'Members' && (
-          <Members
-            project={selectedProject}
-            members={members[selectedProject.id] ?? []}
-            myRole={myRole}
-            myEmail={myEmail}
-            onInvite={inviteMember}
-            onChangeRole={changeMemberRole}
-            onRemove={removeMember}
-            onRefresh={async () => {
-              await loadMembers()
-              checkJoinRequestsRef.current?.()
-            }}
-            onLog={logChange}
-          />
-        )}
-      </section>
+          {selectedProject && activePage === 'Changelog' && (
+            <section className="panel">
+              <div className="panel-heading">
+                <div>
+                  <h2><Clock3 size={19} /> Changelog</h2>
+                  <p>ประวัติการแก้ไขของโปรเจกต์นี้</p>
+                </div>
+                <span className="result-count">{visibleChangelog.length} entries</span>
+              </div>
 
-      <footer className="app-footer">
-        <span>Entity Portal <span className="footer-separator">·</span> Database Documentation</span>
-        <span><span className="footer-status-dot" /> Cloud Workspace</span>
-      </footer>
-    </main>
+              {visibleChangelog.length === 0 ? (
+                <div className="empty-state big">
+                  <Clock3 size={30} />
+                  <p>ยังไม่มีประวัติการแก้ไข</p>
+                  <span>เมื่อมีการเพิ่ม แก้ไข หรือลบข้อมูล รายการจะแสดงที่นี่</span>
+                </div>
+              ) : (
+                <div className="timeline">
+                  {visibleChangelog.map((log) => (
+                    <div className="timeline-item" key={log.id}>
+                      <span
+                        className={`timeline-dot ${log.action === 'delete'
+                          ? 'red-dot'
+                          : log.action === 'create'
+                            ? 'green-dot'
+                            : 'purple-dot'
+                          }`}
+                      />
+                      <div>
+                        <strong>{log.summary}</strong>
+                        <p>{log.target} · {log.name}</p>
+                        <small>
+                          {log.by || 'Unknown'} · {new Date(log.at).toLocaleString('th-TH')}
+                        </small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {selectedProject && activePage === 'Members' && (
+            <Members
+              project={selectedProject}
+              members={members[selectedProject.id] ?? []}
+              myRole={myRole}
+              myEmail={myEmail}
+              onInvite={inviteMember}
+              onChangeRole={changeMemberRole}
+              onRemove={removeMember}
+              onRefresh={async () => {
+                await loadMembers()
+                checkJoinRequestsRef.current?.()
+              }}
+              onLog={logChange}
+            />
+          )}
+        </section>
+
+        <footer className="app-footer">
+          <span>Entity Portal <span className="footer-separator">·</span> Database Documentation</span>
+          <span>
+            <span className="footer-status-dot" /> Cloud Workspace
+            <span className="footer-separator"> · </span>
+            {projects.length} โปรเจกต์
+          </span>
+        </footer>
+      </main>
+
+      {exportDialog && (
+        <ExportDialog
+          kind={exportDialog.kind}
+          dialect={exportDialog.dialect}
+          entities={entities}
+          relationships={relationships}
+          projectName={selectedProject?.name ?? ''}
+          fileBase={baseName}
+          onDownload={downloadFile}
+          onClose={() => setExportDialog(null)}
+        />
+      )}
 
       {
-    joinCode && (
-      <JoinInvite
-        code={joinCode}
-        onClose={closeJoin}
-        onApproved={() => syncProjectListRef.current?.()}
-      />
-    )
-  }
-
-  {
-    showEntityModal && (
-      <div className="project-modal-overlay">
-        <form className="project-modal" onSubmit={handleSaveEntity}>
-          <div className="project-modal-header">
-            <div>
-              <h2>{editingEntity ? 'แก้ไข Entity' : 'สร้าง Entity ใหม่'}</h2>
-              <p>กำหนดชื่อและรายละเอียดของ Entity</p>
-            </div>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={closeEntityModal}
-            >
-              ×
-            </button>
-          </div>
-
-          <label htmlFor="entity-name">ชื่อ Entity *</label>
-          <input
-            id="entity-name"
-            value={entityName}
-            onChange={(event) => setEntityName(event.target.value)}
-            placeholder="เช่น CUSTOMERS"
-            required
+        joinCode && (
+          <JoinInvite
+            code={joinCode}
+            onClose={closeJoin}
+            onApproved={() => syncProjectListRef.current?.()}
           />
+        )
+      }
 
-          <label htmlFor="entity-description">รายละเอียด</label>
-          <textarea
-            id="entity-description"
-            value={entityDescription}
-            onChange={(event) => setEntityDescription(event.target.value)}
-            placeholder="อธิบายข้อมูลของ Entity นี้"
-            rows={3}
-          />
-
-          <div className="project-modal-actions">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={closeEntityModal}
-            >
-              ยกเลิก
-            </button>
-            <button type="submit" className="primary-button">
-              <Plus size={17} />
-              {editingEntity ? 'บันทึกการแก้ไข' : 'สร้าง Entity'}
-            </button>
-          </div>
-        </form>
-      </div>
-    )
-  }
-
-  {
-    showProjectModal && (
-      <div className="project-modal-overlay">
-        <form className="project-modal" onSubmit={handleSaveProject}>
-          <div className="project-modal-header">
-            <div>
-              <h2>{editingProject ? 'แก้ไขโปรเจกต์' : 'สร้างโปรเจกต์ใหม่'}</h2>
-              <p>เพิ่มพื้นที่สำหรับจัดเก็บเอกสารฐานข้อมูล</p>
-            </div>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={closeProjectModal}
-              aria-label="ปิด"
-            >
-              ×
-            </button>
-          </div>
-
-          <label htmlFor="project-name">ชื่อโปรเจกต์ *</label>
-          <input
-            id="project-name"
-            value={projectName}
-            onChange={(event) => setProjectName(event.target.value)}
-            placeholder="เช่น Mappoint Database"
-            required
-            autoFocus
-          />
-
-          <label htmlFor="project-description">รายละเอียด</label>
-          <textarea
-            id="project-description"
-            value={projectDescription}
-            onChange={(event) => setProjectDescription(event.target.value)}
-            placeholder="อธิบายเกี่ยวกับโปรเจกต์นี้"
-            rows={3}
-          />
-
-          <div className="project-modal-actions">
-            <button type="button" className="secondary-button" onClick={closeProjectModal}>
-              ยกเลิก
-            </button>
-            <button type="submit" className="primary-button">
-              <Plus size={17} /> {editingProject ? 'บันทึกการแก้ไข' : 'สร้างโปรเจกต์'}
-            </button>
-          </div>
-        </form>
-      </div>
-    )
-  }
-
-  {
-    showColumnModal && (
-      <div className="project-modal-overlay">
-        <form className="project-modal" onSubmit={handleSaveColumn}>
-          <div className="project-modal-header">
-            <div>
-              <h2>{editingColumn ? 'แก้ไข Column' : 'เพิ่ม Column'}</h2>
-              <p>กำหนดรายละเอียดของ Column ใน {activeEntity?.name}</p>
-            </div>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={closeColumnModal}
-            >
-              ×
-            </button>
-          </div>
-
-          <label htmlFor="column-name">ชื่อ Column *</label>
-          <input
-            id="column-name"
-            value={columnName}
-            onChange={(event) => setColumnName(event.target.value)}
-            placeholder="เช่น user_id"
-            required
-          />
-
-          <label htmlFor="column-type">Data Type</label>
-          <select
-            id="column-type"
-            value={columnType}
-            onChange={(event) => setColumnType(event.target.value)}
-          >
-            <option value="varchar">VARCHAR</option>
-            <option value="int">INT</option>
-            <option value="bigint">BIGINT</option>
-            <option value="text">TEXT</option>
-            <option value="boolean">BOOLEAN</option>
-            <option value="date">DATE</option>
-            <option value="datetime">DATETIME</option>
-            <option value="decimal">DECIMAL</option>
-            <option value="uuid">UUID</option>
-          </select>
-
-          <label htmlFor="column-key">Key</label>
-          <select
-            id="column-key"
-            value={columnKey}
-            onChange={(event) => setColumnKey(event.target.value)}
-          >
-            <option value="">None</option>
-            <option value="PK">Primary Key (PK)</option>
-            <option value="FK">Foreign Key (FK)</option>
-            <option value="UK">Unique Key (UK)</option>
-          </select>
-
-          <label>
-            <input
-              type="checkbox"
-              checked={columnNullable}
-              onChange={(event) => setColumnNullable(event.target.checked)}
-            />
-            Allow NULL
-          </label>
-
-          <label htmlFor="column-default">Default Value</label>
-          <input
-            id="column-default"
-            value={columnDefault}
-            onChange={(event) => setColumnDefault(event.target.value)}
-            placeholder="เช่น NULL หรือ 0"
-          />
-
-          <label htmlFor="column-description">Description</label>
-          <textarea
-            id="column-description"
-            value={columnDescription}
-            onChange={(event) => setColumnDescription(event.target.value)}
-            placeholder="อธิบาย Column นี้"
-            rows={3}
-          />
-
-          <div className="project-modal-actions">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={closeColumnModal}
-            >
-              ยกเลิก
-            </button>
-            <button type="submit" className="primary-button">
-              <Plus size={17} />
-              {editingColumn ? 'บันทึกการแก้ไข' : 'เพิ่ม Column'}
-            </button>
-          </div>
-        </form>
-      </div>
-    )
-  }
-
-  {
-    showRelationshipModal && (
-      <div className="project-modal-overlay">
-        <form
-          className="project-modal relationship-modal"
-          onSubmit={handleSaveRelationship}
-        >
-          <div className="project-modal-header">
-            <div>
-              <h2>{editingRelationship ? 'Edit Relationship' : 'Add Relationship'}</h2>
-              <p>Define how two entities are connected.</p>
-            </div>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => setShowRelationshipModal(false)}
-            >
-              <X size={20} />
-            </button>
-          </div>
-
-          <div className="form-group">
-            <label>From Entity</label>
-
-            <select
-              value={relationshipFromEntity}
-              onChange={(event) => {
-                const name = event.target.value
-                const entity = entities.find(
-                  (item) => item.name === name
-                )
-
-                setRelationshipFromEntity(name)
-                setRelationshipFromField(
-                  entity?.fields[0]?.name || ''
-                )
-              }}
-              required
-            >
-              {entities.map((entity) => (
-                <option
-                  key={entity.name}
-                  value={entity.name}
+      {
+        showEntityModal && (
+          <div className="project-modal-overlay">
+            <form className="project-modal" onSubmit={handleSaveEntity}>
+              <div className="project-modal-header">
+                <div>
+                  <h2>{editingEntity ? 'แก้ไข Entity' : 'สร้าง Entity ใหม่'}</h2>
+                  <p>กำหนดชื่อและรายละเอียดของ Entity</p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={closeEntityModal}
                 >
-                  {entity.name}
-                </option>
-              ))}
-            </select>
-          </div>
+                  ×
+                </button>
+              </div>
 
-          <div className="form-group">
-            <label>From Column</label>
+              <label htmlFor="entity-name">ชื่อ Entity *</label>
+              <input
+                id="entity-name"
+                value={entityName}
+                onChange={(event) => setEntityName(event.target.value)}
+                placeholder="เช่น CUSTOMERS"
+                required
+              />
 
-            <select
-              value={relationshipFromField}
-              onChange={(event) =>
-                setRelationshipFromField(event.target.value)
-              }
-              required
-            >
-              {(
-                entities.find(
-                  (item) =>
-                    item.name === relationshipFromEntity
-                )?.fields || []
-              ).map((field) => (
-                <option
-                  key={field.name}
-                  value={field.name}
+              <label htmlFor="entity-description">รายละเอียด</label>
+              <textarea
+                id="entity-description"
+                value={entityDescription}
+                onChange={(event) => setEntityDescription(event.target.value)}
+                placeholder="อธิบายข้อมูลของ Entity นี้"
+                rows={3}
+              />
+
+              <div className="project-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={closeEntityModal}
                 >
-                  {field.name}
-                </option>
-              ))}
-            </select>
+                  ยกเลิก
+                </button>
+                <button type="submit" className="primary-button">
+                  <Plus size={17} />
+                  {editingEntity ? 'บันทึกการแก้ไข' : 'สร้าง Entity'}
+                </button>
+              </div>
+            </form>
           </div>
+        )
+      }
 
-          <div className="relationship-form-divider">
-            <ArrowRight size={20} />
-            <span>Connect to</span>
-          </div>
-
-          <div className="form-group">
-            <label>To Entity</label>
-
-            <select
-              value={relationshipToEntity}
-              onChange={(event) => {
-                const name = event.target.value
-                const entity = entities.find(
-                  (item) => item.name === name
-                )
-
-                setRelationshipToEntity(name)
-                setRelationshipToField(
-                  entity?.fields[0]?.name || ''
-                )
-              }}
-              required
-            >
-              {entities.map((entity) => (
-                <option
-                  key={entity.name}
-                  value={entity.name}
+      {
+        showProjectModal && (
+          <div className="project-modal-overlay">
+            <form className="project-modal" onSubmit={handleSaveProject}>
+              <div className="project-modal-header">
+                <div>
+                  <h2>{editingProject ? 'แก้ไขโปรเจกต์' : 'สร้างโปรเจกต์ใหม่'}</h2>
+                  <p>เพิ่มพื้นที่สำหรับจัดเก็บเอกสารฐานข้อมูล</p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={closeProjectModal}
+                  aria-label="ปิด"
                 >
-                  {entity.name}
-                </option>
-              ))}
-            </select>
+                  ×
+                </button>
+              </div>
+
+              <label htmlFor="project-name">ชื่อโปรเจกต์ *</label>
+              <input
+                id="project-name"
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+                placeholder="เช่น Mappoint Database"
+                required
+                autoFocus
+              />
+
+              <label htmlFor="project-description">รายละเอียด</label>
+              <textarea
+                id="project-description"
+                value={projectDescription}
+                onChange={(event) => setProjectDescription(event.target.value)}
+                placeholder="อธิบายเกี่ยวกับโปรเจกต์นี้"
+                rows={3}
+              />
+
+              <div className="project-modal-actions">
+                <button type="button" className="secondary-button" onClick={closeProjectModal}>
+                  ยกเลิก
+                </button>
+                <button type="submit" className="primary-button">
+                  <Plus size={17} /> {editingProject ? 'บันทึกการแก้ไข' : 'สร้างโปรเจกต์'}
+                </button>
+              </div>
+            </form>
           </div>
+        )
+      }
 
-          <div className="form-group">
-            <label>To Column</label>
-
-            <select
-              value={relationshipToField}
-              onChange={(event) =>
-                setRelationshipToField(event.target.value)
-              }
-              required
-            >
-              {(
-                entities.find(
-                  (item) =>
-                    item.name === relationshipToEntity
-                )?.fields || []
-              ).map((field) => (
-                <option
-                  key={field.name}
-                  value={field.name}
+      {
+        showColumnModal && (
+          <div className="project-modal-overlay">
+            <form className="project-modal" onSubmit={handleSaveColumn}>
+              <div className="project-modal-header">
+                <div>
+                  <h2>{editingColumn ? 'แก้ไข Column' : 'เพิ่ม Column'}</h2>
+                  <p>กำหนดรายละเอียดของ Column ใน {activeEntity?.name}</p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={closeColumnModal}
                 >
-                  {field.name}
-                </option>
-              ))}
-            </select>
+                  ×
+                </button>
+              </div>
+
+              <label htmlFor="column-name">ชื่อ Column *</label>
+              <input
+                id="column-name"
+                value={columnName}
+                onChange={(event) => setColumnName(event.target.value)}
+                placeholder="เช่น user_id"
+                required
+              />
+
+              <label htmlFor="column-type">Data Type</label>
+              <select
+                id="column-type"
+                value={columnType}
+                onChange={(event) => setColumnType(event.target.value)}
+              >
+                <option value="varchar">VARCHAR</option>
+                <option value="int">INT</option>
+                <option value="bigint">BIGINT</option>
+                <option value="text">TEXT</option>
+                <option value="boolean">BOOLEAN</option>
+                <option value="date">DATE</option>
+                <option value="datetime">DATETIME</option>
+                <option value="decimal">DECIMAL</option>
+                <option value="uuid">UUID</option>
+              </select>
+
+              <label htmlFor="column-key">Key</label>
+              <select
+                id="column-key"
+                value={columnKey}
+                onChange={(event) => setColumnKey(event.target.value)}
+              >
+                <option value="">None</option>
+                <option value="PK">Primary Key (PK)</option>
+                <option value="FK">Foreign Key (FK)</option>
+                <option value="UK">Unique Key (UK)</option>
+              </select>
+
+              <label>
+                <input
+                  type="checkbox"
+                  checked={columnNullable}
+                  onChange={(event) => setColumnNullable(event.target.checked)}
+                />
+                Allow NULL
+              </label>
+
+              <label htmlFor="column-default">Default Value</label>
+              <input
+                id="column-default"
+                value={columnDefault}
+                onChange={(event) => setColumnDefault(event.target.value)}
+                placeholder="เช่น NULL หรือ 0"
+              />
+
+              <label htmlFor="column-description">Description</label>
+              <textarea
+                id="column-description"
+                value={columnDescription}
+                onChange={(event) => setColumnDescription(event.target.value)}
+                placeholder="อธิบาย Column นี้"
+                rows={3}
+              />
+
+              <div className="project-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={closeColumnModal}
+                >
+                  ยกเลิก
+                </button>
+                <button type="submit" className="primary-button">
+                  <Plus size={17} />
+                  {editingColumn ? 'บันทึกการแก้ไข' : 'เพิ่ม Column'}
+                </button>
+              </div>
+            </form>
           </div>
+        )
+      }
 
-          <div className="form-group">
-            <label>Relationship Type</label>
-
-            <select
-              value={relationshipType}
-              onChange={(event) =>
-                setRelationshipType(event.target.value)
-              }
+      {
+        showRelationshipModal && (
+          <div className="project-modal-overlay">
+            <form
+              className="project-modal relationship-modal"
+              onSubmit={handleSaveRelationship}
             >
-              <option value="1:1">One to One (1:1)</option>
-              <option value="1:N">One to Many (1:N)</option>
-              <option value="N:M">Many to Many (N:M)</option>
-            </select>
+              <div className="project-modal-header">
+                <div>
+                  <h2>{editingRelationship ? 'Edit Relationship' : 'Add Relationship'}</h2>
+                  <p>Define how two entities are connected.</p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setShowRelationshipModal(false)}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="form-group">
+                <label>From Entity</label>
+
+                <select
+                  value={relationshipFromEntity}
+                  onChange={(event) => {
+                    const name = event.target.value
+                    const entity = entities.find(
+                      (item) => item.name === name
+                    )
+
+                    setRelationshipFromEntity(name)
+                    setRelationshipFromField(
+                      entity?.fields[0]?.name || ''
+                    )
+                  }}
+                  required
+                >
+                  {entities.map((entity) => (
+                    <option
+                      key={entity.name}
+                      value={entity.name}
+                    >
+                      {entity.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>From Column</label>
+
+                <select
+                  value={relationshipFromField}
+                  onChange={(event) =>
+                    setRelationshipFromField(event.target.value)
+                  }
+                  required
+                >
+                  {(
+                    entities.find(
+                      (item) =>
+                        item.name === relationshipFromEntity
+                    )?.fields || []
+                  ).map((field) => (
+                    <option
+                      key={field.name}
+                      value={field.name}
+                    >
+                      {field.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="relationship-form-divider">
+                <ArrowRight size={20} />
+                <span>Connect to</span>
+              </div>
+
+              <div className="form-group">
+                <label>To Entity</label>
+
+                <select
+                  value={relationshipToEntity}
+                  onChange={(event) => {
+                    const name = event.target.value
+                    const entity = entities.find(
+                      (item) => item.name === name
+                    )
+
+                    setRelationshipToEntity(name)
+                    setRelationshipToField(
+                      entity?.fields[0]?.name || ''
+                    )
+                  }}
+                  required
+                >
+                  {entities.map((entity) => (
+                    <option
+                      key={entity.name}
+                      value={entity.name}
+                    >
+                      {entity.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>To Column</label>
+
+                <select
+                  value={relationshipToField}
+                  onChange={(event) =>
+                    setRelationshipToField(event.target.value)
+                  }
+                  required
+                >
+                  {(
+                    entities.find(
+                      (item) =>
+                        item.name === relationshipToEntity
+                    )?.fields || []
+                  ).map((field) => (
+                    <option
+                      key={field.name}
+                      value={field.name}
+                    >
+                      {field.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Relationship Type</label>
+
+                <select
+                  value={relationshipType}
+                  onChange={(event) =>
+                    setRelationshipType(event.target.value)
+                  }
+                >
+                  <option value="1:1">One to One (1:1)</option>
+                  <option value="1:N">One to Many (1:N)</option>
+                  <option value="N:M">Many to Many (N:M)</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Relationship Name</label>
+
+                <input
+                  type="text"
+                  value={relationshipLabel}
+                  onChange={(event) =>
+                    setRelationshipLabel(event.target.value)
+                  }
+                  placeholder="e.g. creates, belongs to"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Description</label>
+
+                <textarea
+                  value={relationshipDetail}
+                  onChange={(event) =>
+                    setRelationshipDetail(event.target.value)
+                  }
+                  placeholder="Describe this relationship..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="project-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() =>
+                    setShowRelationshipModal(false)
+                  }
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="primary-button"
+                >
+                  {editingRelationship ? 'Save Changes' : 'Add Relationship'}
+                </button>
+              </div>
+            </form>
           </div>
-
-          <div className="form-group">
-            <label>Relationship Name</label>
-
-            <input
-              type="text"
-              value={relationshipLabel}
-              onChange={(event) =>
-                setRelationshipLabel(event.target.value)
-              }
-              placeholder="e.g. creates, belongs to"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Description</label>
-
-            <textarea
-              value={relationshipDetail}
-              onChange={(event) =>
-                setRelationshipDetail(event.target.value)
-              }
-              placeholder="Describe this relationship..."
-              rows={3}
-            />
-          </div>
-
-          <div className="project-modal-actions">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() =>
-                setShowRelationshipModal(false)
-              }
-            >
-              Cancel
-            </button>
-
-            <button
-              type="submit"
-              className="primary-button"
-            >
-              {editingRelationship ? 'Save Changes' : 'Add Relationship'}
-            </button>
-          </div>
-        </form>
-      </div>
-    )
-  }
+        )
+      }
     </div >
   )
 }

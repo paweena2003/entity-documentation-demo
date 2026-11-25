@@ -1,0 +1,206 @@
+/* ===== Import mapper / Export dialog ===== */
+
+/* ---- Import mapper ---- */
+.io-preview.mapper { display: grid; gap: 12px; }
+
+.mapper-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mapper-head strong { display: block; color: #34415e; font-size: 12px; }
+.mapper-head small { display: block; margin-top: 4px; color: #8b95a9; font-size: 10px; line-height: 1.7; }
+.mapper-auto { min-height: 32px; padding: 5px 11px; font-size: 11px; white-space: nowrap; }
+
+.mapper-rows {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e8edf5;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.mapper-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.mapper-source { display: grid; gap: 4px; min-width: 0; }
+.mapper-source .filter-select { width: 100%; }
+.mapper-source small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9aa3b5;
+  font-size: 10px;
+}
+
+.mapper-arrow { color: #b0b8c8; }
+.mapper-target strong { display: block; color: #34415e; font-size: 11px; }
+.mapper-target small { display: block; margin-top: 2px; color: #9aa3b5; font-size: 10px; line-height: 1.5; }
+.mapper-req { color: #d65353; }
+
+.mapper-options { display: grid; gap: 8px; }
+
+.mapper-option {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #66718a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mapper-option .qx-input { flex: 1 1 180px; max-width: 260px; }
+
+.mapper-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #66718a;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.mapper-check input { margin-top: 3px; }
+
+.mapper-warn {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff8ea;
+  color: #8a6420;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ---- Export dialog ---- */
+.project-modal.export-modal {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.export-bulk {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+.export-bulk label {
+  display: grid;
+  gap: 4px;
+  color: #66718a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.export-list {
+  display: grid;
+  gap: 6px;
+  max-height: 300px;
+  margin-bottom: 12px;
+  padding: 8px;
+  overflow-y: auto;
+  border: 1px solid #e8edf5;
+  border-radius: 10px;
+  background: #fafaff;
+}
+
+.export-entity.off { opacity: 0.55; }
+
+.export-entity-row,
+.export-field-row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+}
+
+.export-entity-row { grid-template-columns: 18px minmax(80px, 0.8fr) 14px minmax(0, 1.2fr) auto; }
+.export-field-row { grid-template-columns: minmax(80px, 0.8fr) 14px minmax(0, 1.2fr); padding-left: 26px; margin-top: 6px; }
+
+.export-orig {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #566078;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+}
+
+.export-to { color: #b0b8c8; font-size: 11px; text-align: center; }
+.export-entity .qx-input { height: 34px; min-width: 0; font-size: 11px; }
+.export-move { display: inline-flex; gap: 4px; }
+.export-move .icon-button { width: 30px; height: 30px; }
+
+.export-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: #293650;
+  font-size: 12px;
+}
+
+.export-preview-head small { color: #9aa3b5; font-size: 10px; }
+.qx-sql.export-preview { max-height: 220px; margin-bottom: 4px; font-size: 11px; }
+
+@media (max-width: 600px) {
+  .mapper-row { grid-template-columns: 1fr; }
+  .mapper-arrow { display: none; }
+  .export-entity-row { grid-template-columns: 18px minmax(0, 1fr); }
+  .export-to { display: none; }
+}
+
+/* ---- Overview เพิ่มเติม ---- */
+.overview-extra { margin-top: 20px; }
+
+.type-bars { display: grid; gap: 10px; padding: 0 20px 6px; }
+
+.type-bar-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 10px;
+}
+
+.type-bar-row small { color: #66718a; font-size: 11px; font-weight: 700; text-align: right; }
+
+.overview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 12px 20px 18px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f2f7;
+  color: #8b95a9;
+  font-size: 11px;
+}
+
+.overview-meta span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---- Query: คำอธิบายแต่ละแท็บ ---- */
+.qx-help {
+  display: grid;
+  gap: 3px;
+  margin: 0 20px 14px;
+  padding: 10px 14px;
+  border: 1px solid #e8e9ff;
+  border-radius: 10px;
+  background: #f8f9ff;
+  color: #66718a;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.qx-help strong { color: #4e50d4; font-size: 12px; }
+
+@media (max-width: 600px) { .qx-help { margin-inline: 14px; } }
