@@ -1,12 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Search, Copy, Check, Plus, X, ArrowRight, Terminal, ShieldCheck } from 'lucide-react'
+import { Copy, Check, Plus, X, ArrowRight, Terminal } from 'lucide-react'
 
 /* ======================================================================
-   Query page — อ่านอย่างเดียว ไม่แตะระบบ autosave/sync
-   แท็บ 1: Explore      → ค้นหา/กรอง Column และตรวจคุณภาพเอกสาร
-   แท็บ 2: SQL Builder  → สร้าง SELECT ... JOIN ... WHERE จาก Relationships
+   SQL Builder — อ่านอย่างเดียว ไม่แตะระบบ autosave/sync
+   สร้าง SELECT ... JOIN ... WHERE จาก Relationships ที่บันทึกไว้
    ====================================================================== */
-
 const NUMERIC_TYPES = ['int', 'bigint', 'decimal', 'float', 'double', 'numeric', 'smallint']
 
 const OPS = [
@@ -442,8 +440,3 @@ function SqlBuilder({ entities, relationships }) {
     </div>
   )
 }
-
-/* ======================================================================
-   Tab 3 — SQL Console (เขียน SELECT เองกับ "ตารางเมทาดาต้า" ของโปรเจกต์)
-   ต้องติดตั้ง: npm install alasql   (โหลดแบบ lazy เมื่อกด Run ครั้งแรกเท่านั้น)
-   ====================================================================== */

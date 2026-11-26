@@ -57,7 +57,7 @@ import {
   safeFileName,
 } from './exportImport'
 import ExportMenu from './ExportMenu'
-import { exportPdf, exportWord } from './exportDoc'
+import { exportPdf } from './exportDoc'
 
 const initialEntities = [
   {
@@ -1990,7 +1990,13 @@ function App() {
   const dictionaryExportItems = [
     { label: 'CSV (.csv) — ตั้งค่าหัวคอลัมน์ได้', run: exportDictionary },
     { label: 'Excel (.xlsx) — ตามที่กรองอยู่', run: exportDictionaryXlsx },
-    { label: 'Word (.doc) — ตามที่กรองอยู่', run: () => exportWord([{ title: 'Data Dictionary', content: dictionaryMarkdown() }], selectedProject?.name) },
+    {
+      label: 'Word (.docx) — ตามที่กรองอยู่',
+      run: async () => {
+        const { exportDictionaryDocx } = await import('./exportDocx')
+        await exportDictionaryDocx(sortedFields, selectedProject?.name, `${baseName}_data_dictionary.docx`)
+      },
+    },
     { label: 'PDF — ตามที่กรองอยู่', run: () => exportPdf([{ title: 'Data Dictionary', content: dictionaryMarkdown() }], selectedProject?.name) },
   ]
 
@@ -2923,14 +2929,7 @@ function App() {
             </section>
           )}
           {selectedProject && activePage === 'Query' && (
-            <Query
-              entities={entities}
-              relationships={relationships}
-              onOpenEntity={(name) => {
-                setSelectedEntity(name)
-                setActivePage('Entities')
-              }}
-            />
+            <Query entities={entities} relationships={relationships} />
           )}
 
           {selectedProject && activePage === 'Relationships' && (
